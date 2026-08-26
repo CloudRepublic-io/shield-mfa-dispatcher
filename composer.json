@@ -1,0 +1,30 @@
+{
+    "name": "cloudrepublic/shield-mfa-dispatcher",
+    "description": "Lets a CodeIgniter Shield app offer several MFA methods (email, WhatsApp, TOTP, passkey, ...) and switch a user between them programmatically, despite Shield's Auth::$actions only accepting one class.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": [
+        "codeigniter4",
+        "codeigniter",
+        "shield",
+        "mfa",
+        "2fa"
+    ],
+    "require": {
+        "php": "^8.1",
+        "codeigniter4/framework": "^4.3",
+        "codeigniter4/shield": "^1.0"
+    },
+    "suggest": {
+        "cloudrepublic/shield-whatsapp-mfa": "Adds a 'whatsapp' method option, plus self-service phone verification on the settings page built into this package.",
+        "cloudrepublic/shield-totp-mfa": "Adds a 'totp' method option, plus self-service enrollment on the settings page built into this package.",
+        "cloudrepublic/shield-passkey-mfa": "Adds a 'passkey' method option for the login step - its own self-service enrollment page (account/passkeys) isn't currently integrated into this package's settings page the way TOTP's is, so link to it separately."
+    },
+    "autoload": {
+        "psr-4": {
+            "MfaDispatcher\\": "src/"
+        }
+    },
+    "minimum-stability": "stable"
+}
+
