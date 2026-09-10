@@ -241,4 +241,34 @@ final class MfaSettingsControllerTest extends CIUnitTestCase
 
         $this->assertStringContainsString(lang('MfaDispatcher.requiredMethodAlreadyInEffectNote'), $body);
     }
+
+    /**
+     * THE regression test for a real, confirmed follow-up: the note
+     * above says the required method is "your effective verification
+     * method, regardless of your own preference below" - which is only
+     * spatially accurate if the required method's own row genuinely
+     * does render above the others. Config\MfaDispatcher::$methods in
+     * this test's own setUp() lists 'fake' BEFORE 'fake2' - this test
+     * deliberately requires 'fake2' (the SECOND-configured one)
+     * specifically so a naive "just use config array order" rendering
+     * would fail this test, while the actual reordering in index()
+     * passes it.
+     */
+    public function testTheRequiredMethodIsMovedToTheFrontOfTheListEvenIfConfiguredSecond(): void
+    {
+        $user = $this->makeUser();
+        $user->addGroup('superadmin');
+        $this->actingAs($user);
+
+        service('settings')->set('MfaDispatcher.requiredMethodsForGroups', ['superadmin' => 'fake2']);
+
+        $body = $this->makeController()->index();
+
+        $positionOfFake2 = strpos($body, 'Fake2');
+        $positionOfFake  = strpos($body, '>Fake<'); // narrowed so "Fake2" itself doesn't also match a plain "Fake" search
+
+        $this->assertNotFalse($positionOfFake2);
+        $this->assertNotFalse($positionOfFake);
+        $this->assertLessThan($positionOfFake, $positionOfFake2);
+    }
 }

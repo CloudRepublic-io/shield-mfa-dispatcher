@@ -61,10 +61,35 @@ class MfaSettingsController extends Controller
     {
         $user = auth()->user();
 
+        $requiredMethod = $this->resolver->requiredMethodFor($user);
+        $methods        = $this->config->methods;
+
+        if ($requiredMethod !== null && isset($methods[$requiredMethod])) {
+            // Moves the required method to the front of the list -
+            // purely so the view's own "this is already your effective
+            // verification method, regardless of your own preference
+            // below" note is spatially accurate. Without this, the
+            // required method renders wherever it happens to sit in
+            // Config\MfaDispatcher::$methods, which could easily be
+            // below the very preferences that note claims are "below"
+            // it - a real, confirmed source of confusion.
+            //
+            // The array union operator (+) keeps the left-hand side's
+            // value for $requiredMethod's own key (already present on
+            // the left) and appends every other key from $methods in
+            // its original relative order - the net effect is "move
+            // this one key to the front, leave everything else's
+            // relative order untouched" without needing a manual loop.
+            // Deliberately scoped to only this scenario - the normal,
+            // no-requirement ordering (config array order) is left
+            // completely alone otherwise.
+            $methods = [$requiredMethod => $methods[$requiredMethod]] + $methods;
+        }
+
         return view($this->config->views['mfa_settings_index'], [
-            'methods'           => $this->config->methods,
+            'methods'           => $methods,
             'current'           => $this->preference->get($user) ?? $this->config->defaultMethod,
-            'requiredMethod'    => $this->resolver->requiredMethodFor($user),
+            'requiredMethod'    => $requiredMethod,
             'totpAvailable'     => $this->totpLibraryAvailable(),
             'totpEnrolled'      => $this->totpLibraryAvailable() && $this->totpStore()->hasEnrolled($user),
             'whatsappAvailable' => $this->whatsappLibraryAvailable(),

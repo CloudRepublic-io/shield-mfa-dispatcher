@@ -345,7 +345,19 @@ The page now resolves the required method (if any) via the same
   so leaving it clickable was just as misleading as leaving the other
   methods' buttons clickable. A short note explains why in this
   specific case, since the row itself isn't visually greyed out the way
-  the overridden ones are.
+  the overridden ones are,
+- **moves the required method's own row to the front of the list** -
+  a real, confirmed follow-up: that same note says the required method
+  is "your effective verification method, regardless of your own
+  preference below," which is only spatially accurate if it genuinely
+  renders above the others. Without this, it renders wherever it
+  happens to sit in `Config\MfaDispatcher::$methods`, which could
+  easily put it below the very preferences the note claims are
+  "below" it. `index()` moves it to the front via a plain array-union
+  reorder, leaving every other method's relative order untouched -
+  and leaving the *normal*, no-requirement case's ordering (plain
+  config array order) completely alone, since this reordering only
+  ever happens when a required method actually applies.
 
 `choose()` also refuses server-side if posted a method other than the
 required one - the view-level disabling above is a UX courtesy, not a
