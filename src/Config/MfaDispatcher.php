@@ -118,6 +118,52 @@ class MfaDispatcher extends BaseConfig
         // 'passkey'  => \PasskeyMfa\Authentication\Actions\PasskeyActivator::class,
     ];
 
+    /**
+     * REQUIRED if you're adding your own custom method (beyond 'email',
+     * 'totp', 'whatsapp', 'passkey') to $methods/$activatorClasses AND
+     * also listing it as a value in $requiredMethodsForGroups above.
+     *
+     * CONFIRMED, REAL GAP THIS FIXES: MethodEnrollmentChecker (used by
+     * resolveRequiredMethod() to decide whether a user in a
+     * required-method group has actually set that method up yet, or
+     * needs to be routed into forced setup) only knows how to check
+     * enrollment for the four method keys this package and its
+     * siblings already recognize natively - it has no way to know how
+     * to check a method key it's never heard of. Without an entry
+     * here, a custom method used in $requiredMethodsForGroups would
+     * always resolve as "not enrolled", routing every affected user
+     * into forced setup on every single login, forever, even
+     * immediately after they've genuinely completed it - since nothing
+     * would ever tell the checker to look again and find a different
+     * answer.
+     *
+     * method key => any PHP callable accepting a
+     * CodeIgniter\Shield\Entities\User and returning bool (true if that
+     * specific user has already set this method up). A Closure is the
+     * safest, most broadly correct form - see the example below. A
+     * [ClassName::class, 'methodName'] pair also works, but ONLY if
+     * that method is actually static; the existing packages' own
+     * hasEnrolled()/hasVerifiedPhoneNumber() methods are instance
+     * methods, so wrapping one of those directly needs a Closure (or
+     * an already-instantiated object, [$instance, 'methodName']) rather
+     * than a bare class-string pair. Only consulted for method keys
+     * NOT already known natively - registering a custom checker for
+     * 'totp'/'whatsapp'/'passkey'/'email' has no effect, since those
+     * already have a fixed, tested answer.
+     *
+     * You do NOT need an entry here for a custom method you're only
+     * ever using via the plain, non-required, preference-based flow
+     * (a user choosing it themselves, with no group requiring it) -
+     * this callable is consulted only by the required-method/forced-
+     * setup path.
+     *
+     * @var array<string, callable(\CodeIgniter\Shield\Entities\User): bool>
+     */
+    public array $customEnrollmentCheckers = [
+        // 'yubikey' => static fn (\CodeIgniter\Shield\Entities\User $user): bool
+        //     => (new \App\Libraries\YubikeyIdentityStore())->hasEnrolled($user),
+    ];
+
     // -- Step-up auth for sensitive pages (RequireFreshMfa filter) ----------
 
     /**

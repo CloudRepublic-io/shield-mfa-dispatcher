@@ -307,6 +307,83 @@ array wins - this package doesn't try to infer which of your groups is
 realistically hold more than one (e.g. `'superadmin'` before
 `'admin'`).
 
+## Adding your own custom MFA method
+
+Everything in this package is built around method *keys* you define
+yourself in config, not a fixed list this package hardcodes - a
+hardware security key, a push-notification approval flow, or anything
+else that implements Shield's own `ActionInterface` can be added
+alongside (or instead of) TOTP/WhatsApp/passkey, without touching this
+package's own source.
+
+1. **Write your own login action** - a normal Shield `ActionInterface`
+   implementation (`getType()`, `createIdentity()`, `show()`,
+   `handle()`, `verify()`), exactly as you would for direct use in
+   `Config\Auth::$actions`. Nothing dispatcher-specific is needed here.
+
+2. **Register it in `$methods`**:
+
+   ```php
+   public array $methods = [
+       'email'   => \CodeIgniter\Shield\Authentication\Actions\Email2FA::class,
+       'yubikey' => \App\Authentication\Actions\YubikeyMfa::class,
+   ];
+   ```
+
+   This alone is enough for users to choose `'yubikey'` as their own
+   preference (`MfaSettingsController`, or your own UI calling
+   `MfaPreference::set()` directly) and have it work correctly through
+   the plain, non-required, preference-based resolution path - no
+   further steps needed if you're not also using
+   `$requiredMethodsForGroups` for this method.
+
+3. **If you also want registration-time (or forced-setup) enrollment**,
+   write your own activator action too (mirroring
+   `TotpActivator`/`WhatsAppActivator`/`PasskeyActivator` from the
+   sibling packages - each implements
+   `CodeIgniter\Shield\Authentication\Actions\ConditionalActionInterface`'s
+   `appliesTo(User $user): bool`, returning `false` once the user's
+   already enrolled - see any of those classes' own doc comments for
+   why this specific interface matters, a confirmed, real bug this
+   package's own sibling packages hit without it), then register it:
+
+   ```php
+   public array $activatorClasses = [
+       'yubikey' => \App\Authentication\Actions\YubikeyActivator::class,
+   ];
+   ```
+
+4. **If you're using `$requiredMethodsForGroups` for this method,
+   register a custom enrollment checker too** - this step is easy to
+   miss, and skipping it produces a real, confirmed failure mode: every
+   affected user gets routed into forced setup on *every single login,
+   forever*, even immediately after they've genuinely completed it,
+   because nothing tells `MethodEnrollmentChecker` how to recognize
+   that they already have:
+
+   ```php
+   public array $customEnrollmentCheckers = [
+       'yubikey' => static fn (\CodeIgniter\Shield\Entities\User $user): bool
+           => (new \App\Libraries\YubikeyIdentityStore())->hasEnrolled($user),
+   ];
+   ```
+
+   Any PHP callable works here - a `Closure` (as above), an
+   already-instantiated object paired with a method name
+   (`[$instance, 'hasEnrolled']`), or a `[ClassName::class,
+   'staticMethodName']` pair if the method is genuinely static. It just
+   needs to accept a `User` and return `bool` - true if that specific
+   user has already set your method up.
+
+5. **Optionally, add step-up support** - your own filter implementing
+   `CodeIgniter\Filters\FilterInterface`, registered in
+   `$stepUpFilterClasses` under the same method key, if you want
+   `RequireFreshMfa` to be able to challenge for freshness on this
+   method too.
+
+None of steps 1-5 require modifying this package's own source at any
+point - every extension point is a config array your own app populates.
+
 ## Diagnostic logging is gated to development only
 
 `MfaDispatcher::show()`/`resolveRequiredMethod()` and
