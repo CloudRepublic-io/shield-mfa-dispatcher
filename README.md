@@ -323,11 +323,29 @@ The page now resolves the required method (if any) via the same
 
 - shows a banner explaining that a specific method is required and why
   the choices below won't change anything,
-- marks that method's own row with a "Required" badge,
+- marks that method's own row with a "Required" badge, and suppresses
+  the ordinary "Active" badge everywhere while a required method
+  applies - "Active" reflects the user's own *stored* preference,
+  which never actually gets used at all once a required method
+  overrides it, so showing it anywhere in that situation would be
+  factually misleading, not just redundant with "Required" (a real,
+  confirmed inconsistency: a stored preference of `'email'` alongside
+  a required `'totp'` previously showed "Active" on the email row and
+  "Required" on the totp row simultaneously - two different rows both
+  implying "this is what's used"),
 - visually disables every *other* method's own "use this method"
   action (and any not-yet-enrolled/setup messaging for those, which
   would otherwise be genuinely misleading to show alongside a disabled
-  action).
+  action),
+- **also** disables the required method's own "use this method" button
+  whenever it isn't already the user's stored preference - a real,
+  confirmed follow-up inconsistency: clicking it wouldn't change
+  anything about what's actually enforced at login either way (the
+  required method already wins regardless of the stored preference),
+  so leaving it clickable was just as misleading as leaving the other
+  methods' buttons clickable. A short note explains why in this
+  specific case, since the row itself isn't visually greyed out the way
+  the overridden ones are.
 
 `choose()` also refuses server-side if posted a method other than the
 required one - the view-level disabling above is a UX courtesy, not a
@@ -406,7 +424,12 @@ package's own source.
    ];
    ```
 
-   A `[ClassName::class,
+   **CORRECTION - a real report from a developer following an earlier
+   version of this guide:** it originally recommended a `Closure` here
+   instead, as this property's own default value. That's wrong, and
+   fails outright: PHP has never allowed a Closure (or any non-constant
+   expression) as a class property's default - only a genuine
+   compile-time constant, which a Closure is not. A `[ClassName::class,
    'staticMethodName']` pair, as above, IS a valid compile-time
    constant (just two strings) - usable directly as a default with no
    workaround needed. Since a store's own `hasEnrolled()`-style method
@@ -424,7 +447,9 @@ package's own source.
 
    A Closure still works technically if assigned to this property
    *after* construction (e.g. from your own config class's
-   constructor) rather than as its default. The static-method form
+   constructor) rather than as its default - but a real report also
+   confirmed that specific workaround didn't resolve reliably in
+   practice, for reasons not fully pinned down. The static-method form
    above is recommended specifically because it sidesteps the entire
    question, working safely and directly as this array's own default
    value.

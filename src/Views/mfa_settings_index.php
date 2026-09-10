@@ -29,7 +29,7 @@
         <div class="list-group-item d-flex justify-content-between align-items-center<?= $overriddenByRequirement ? ' opacity-50' : '' ?>">
             <div>
                 <strong><?= esc(lang('MfaDispatcher.methodLabel_' . $key) ?: ucfirst($key)) ?></strong>
-                <?php if ($key === $current) : ?>
+                <?php if ($requiredMethod === null && $key === $current) : ?>
                     <span class="badge bg-primary ms-2">Active</span>
                 <?php endif ?>
                 <?php if ($requiredMethod !== null && $key === $requiredMethod) : ?>
@@ -44,6 +44,9 @@
                 <?php endif ?>
                 <?php if ($overriddenByRequirement) : ?>
                     <div class="text-muted small"><?= str_replace('{method}', esc(lang('MfaDispatcher.methodLabel_' . $requiredMethod) ?: ucfirst($requiredMethod)), lang('MfaDispatcher.requiredMethodDisabledNote')) ?></div>
+                <?php endif ?>
+                <?php if ($requiredMethod !== null && $key === $requiredMethod && $key !== $current) : ?>
+                    <div class="text-muted small"><?= lang('MfaDispatcher.requiredMethodAlreadyInEffectNote') ?></div>
                 <?php endif ?>
             </div>
 
@@ -81,6 +84,10 @@
                     <a href="<?= url_to('mfa-settings-whatsapp-enroll') ?>" class="btn btn-sm btn-primary">
                         <?= lang('MfaDispatcher.whatsappSetupButton') ?>
                     </a>
+                <?php elseif ($requiredMethod !== null && $key === $requiredMethod) : ?>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled>
+                        <?= lang('MfaDispatcher.chooseButton') ?>
+                    </button>
                 <?php else : ?>
                     <form method="post" action="<?= url_to('mfa-settings-choose') ?>" class="d-inline">
                         <?= csrf_field() ?>

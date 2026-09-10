@@ -16,6 +16,7 @@ return [
     'requiredMethodBanner'         => 'Your account requires {method} for verification. This is set by policy and can\'t be changed here - the options below won\'t take effect.',
     'requiredMethodBadge'          => 'Required',
     'requiredMethodDisabledNote'   => 'Not available - {method} is required for your account.',
+    'requiredMethodAlreadyInEffectNote' => 'This is already your effective verification method, regardless of your own preference below.',
     'cannotChooseRequiredOverride' => 'Your account requires a specific verification method, so this choice won\'t be used. No change was made.',
 
     'methodLabel_email'    => 'Email code',

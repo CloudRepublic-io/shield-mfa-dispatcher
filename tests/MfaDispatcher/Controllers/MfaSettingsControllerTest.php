@@ -186,4 +186,59 @@ final class MfaSettingsControllerTest extends CIUnitTestCase
         $this->assertIsString($body);
         $this->assertNotSame('', $body);
     }
+
+    /**
+     * THE regression test for a real, confirmed UX inconsistency: the
+     * "Active" badge reflects the user's own STORED preference, which
+     * never actually gets used at all once a required method applies -
+     * showing it anywhere in that situation is factually misleading,
+     * not just redundant with the "Required" badge. Deliberately sets
+     * a preference DIFFERENT from the required method, so this can't
+     * pass by accident (if both badges happened to land on the same
+     * row, a test not checking for "Active" specifically wouldn't
+     * catch a regression here).
+     */
+    public function testActiveBadgeIsSuppressedWhenAMethodIsRequired(): void
+    {
+        $user = $this->makeUser();
+        $user->addGroup('superadmin');
+        $this->actingAs($user);
+
+        service('settings')->set('MfaDispatcher.requiredMethodsForGroups', ['superadmin' => 'fake']);
+
+        $preference = new MfaPreference();
+        $preference->set($user, 'fake2'); // deliberately NOT the required method
+
+        $body = $this->makeController()->index();
+
+        $this->assertStringNotContainsString('>Active<', $body);
+        $this->assertStringContainsString(lang('MfaDispatcher.requiredMethodBadge'), $body);
+    }
+
+    /**
+     * THE regression test for a real, confirmed follow-up
+     * inconsistency: the required method's own "Use this method" button
+     * previously stayed clickable whenever it wasn't already the
+     * user's stored preference - misleading, since clicking it doesn't
+     * change what's actually enforced at login either way (the
+     * required method already wins over any stored preference
+     * regardless). Deliberately sets the preference to something
+     * OTHER than the required method, so the button in question is
+     * actually reachable in this test at all.
+     */
+    public function testTheRequiredMethodsOwnButtonIsDisabledWhenItIsntTheStoredPreference(): void
+    {
+        $user = $this->makeUser();
+        $user->addGroup('superadmin');
+        $this->actingAs($user);
+
+        service('settings')->set('MfaDispatcher.requiredMethodsForGroups', ['superadmin' => 'fake']);
+
+        $preference = new MfaPreference();
+        $preference->set($user, 'fake2'); // deliberately NOT the required method
+
+        $body = $this->makeController()->index();
+
+        $this->assertStringContainsString(lang('MfaDispatcher.requiredMethodAlreadyInEffectNote'), $body);
+    }
 }
