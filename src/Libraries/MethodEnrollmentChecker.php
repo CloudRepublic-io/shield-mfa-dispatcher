@@ -41,6 +41,20 @@ class MethodEnrollmentChecker
      * false (not an error) for a method that isn't installed at all -
      * "not enrolled" is the correct answer either way from a caller's
      * perspective, except for 'email', which is always true regardless.
+     *
+     * DIAGNOSTIC LOGGING below, alongside
+     * MfaDispatcher::resolveRequiredMethod()'s own - a real report
+     * showed a user routed back into forced setup despite already
+     * having a stored credential. Logged specifically at the two
+     * distinct places a false result could come from
+     * (isAvailable() being false vs. the store's own hasEnrolled()/
+     * hasVerifiedPhoneNumber() being false) so those two genuinely
+     * different causes - "this package isn't being detected as
+     * installed at all" vs. "the database genuinely has no matching
+     * row for this user" - aren't conflated into one ambiguous log
+     * line. Gated to only ever write when ENVIRONMENT is 'development'
+     * (see DiagnosticLog's own doc comment) so this never accumulates
+     * user_id values in a production log from ordinary logins.
      */
     public function isEnrolled(string $method, User $user): bool
     {
@@ -48,26 +62,47 @@ class MethodEnrollmentChecker
             return true;
         }
 
-        if ($method === 'totp' && $this->isAvailable('totp')) {
-            $class = '\TotpMfa\Libraries\TotpIdentityStore';
-            $store = new $class();
+        if (! $this->isAvailable($method)) {
+            DiagnosticLog::write(
+                'info',
+                'MethodEnrollmentChecker isEnrolled: method "{method}" is not available (isAvailable() returned false) for user_id {user_id} - the matching class was not detected via class_exists().',
+                ['method' => $method, 'user_id' => $user->id]
+            );
 
-            return $store->hasEnrolled($user);
+            return false;
         }
 
-        if ($method === 'whatsapp' && $this->isAvailable('whatsapp')) {
-            $class = '\WhatsAppMfa\Libraries\PhoneNumberStore';
-            $store = new $class();
+        if ($method === 'totp') {
+            $class    = '\TotpMfa\Libraries\TotpIdentityStore';
+            $store    = new $class();
+            $enrolled = $store->hasEnrolled($user);
 
-            return $store->hasVerifiedPhoneNumber($user);
+            DiagnosticLog::write('info', 'MethodEnrollmentChecker isEnrolled: TotpIdentityStore::hasEnrolled() returned {enrolled} for user_id {user_id}.', ['enrolled' => $enrolled ? 'true' : 'false', 'user_id' => $user->id]);
+
+            return $enrolled;
         }
 
-        if ($method === 'passkey' && $this->isAvailable('passkey')) {
-            $class = '\PasskeyMfa\Libraries\PasskeyIdentityStore';
-            $store = new $class();
+        if ($method === 'whatsapp') {
+            $class    = '\WhatsAppMfa\Libraries\PhoneNumberStore';
+            $store    = new $class();
+            $enrolled = $store->hasVerifiedPhoneNumber($user);
 
-            return $store->hasEnrolled($user);
+            DiagnosticLog::write('info', 'MethodEnrollmentChecker isEnrolled: PhoneNumberStore::hasVerifiedPhoneNumber() returned {enrolled} for user_id {user_id}.', ['enrolled' => $enrolled ? 'true' : 'false', 'user_id' => $user->id]);
+
+            return $enrolled;
         }
+
+        if ($method === 'passkey') {
+            $class    = '\PasskeyMfa\Libraries\PasskeyIdentityStore';
+            $store    = new $class();
+            $enrolled = $store->hasEnrolled($user);
+
+            DiagnosticLog::write('info', 'MethodEnrollmentChecker isEnrolled: PasskeyIdentityStore::hasEnrolled() returned {enrolled} for user_id {user_id}.', ['enrolled' => $enrolled ? 'true' : 'false', 'user_id' => $user->id]);
+
+            return $enrolled;
+        }
+
+        DiagnosticLog::write('info', 'MethodEnrollmentChecker isEnrolled: unrecognized method key "{method}" for user_id {user_id} - returning false.', ['method' => $method, 'user_id' => $user->id]);
 
         return false;
     }

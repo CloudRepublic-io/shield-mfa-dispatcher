@@ -11,6 +11,7 @@ use CodeIgniter\Shield\Authentication\Authenticators\Session;
 use CodeIgniter\Shield\Entities\User;
 use CodeIgniter\Shield\Exceptions\RuntimeException;
 use Config\MfaDispatcher as MfaDispatcherConfig;
+use MfaDispatcher\Libraries\DiagnosticLog;
 use MfaDispatcher\Libraries\MethodEnrollmentChecker;
 use MfaDispatcher\Libraries\MfaMethodResolver;
 use MfaDispatcher\Libraries\MfaPreference;
@@ -60,8 +61,18 @@ class MfaDispatcher implements ActionInterface
         $this->resolver          = new MfaMethodResolver();
     }
 
+    /**
+     * TEMPORARY DIAGNOSTIC LOGGING added below - part of the same live
+     * investigation as resolveRequiredMethod()'s own logging further
+     * down. Logged BEFORE getPendingUser() is even called, specifically
+     * so this still fires (confirming show() was entered at all) even
+     * if that call throws - which would itself be a different, useful
+     * signal (Shield decided nothing is pending for THIS slot at all).
+     */
     public function show(): string
     {
+        DiagnosticLog::write('info', 'MfaDispatcher show(): entered, current URI {uri}.', ['uri' => (string) current_url(true)]);
+
         $user   = $this->getPendingUser();
         $action = $this->resolveAction($user);
 
@@ -76,6 +87,8 @@ class MfaDispatcher implements ActionInterface
             redirect()->to(config('Auth')->loginRedirect())->send();
             exit;
         }
+
+        DiagnosticLog::write('info', 'MfaDispatcher show(): resolved action class {class} for user_id {user_id}, delegating to its own show().', ['class' => get_class($action), 'user_id' => $user->id]);
 
         return $action->show();
     }
@@ -257,10 +270,30 @@ class MfaDispatcher implements ActionInterface
      * its registration-time activator (Config\MfaDispatcher::$activatorClasses)
      * instead of its login-time verification action, so setup happens
      * inline before their login can complete.
+     *
+     * TEMPORARY DIAGNOSTIC LOGGING added below - a real report showed a
+     * user routed back into forced setup at a SUBSEQUENT login, despite
+     * already having a stored credential from registration. This method
+     * is the single decision point for that routing, so logging exactly
+     * what isEnrolled() returns (and for which user_id) here will
+     * confirm whether that check itself is the problem, or whether
+     * something upstream (e.g. which user this actually runs for) is.
+     * Safe to leave in permanently - gated to only ever write when
+     * ENVIRONMENT is 'development' (see DiagnosticLog's own doc
+     * comment for why), so this never accumulates user_id values in a
+     * production log just from ordinary MFA-required logins.
      */
     protected function resolveRequiredMethod(string $method, User $user): ActionInterface
     {
-        if ($this->enrollmentChecker->isEnrolled($method, $user)) {
+        $enrolled = $this->enrollmentChecker->isEnrolled($method, $user);
+
+        DiagnosticLog::write(
+            'info',
+            'MfaDispatcher resolveRequiredMethod: user_id {user_id}, method "{method}", isEnrolled() returned {enrolled}.',
+            ['user_id' => $user->id, 'method' => $method, 'enrolled' => $enrolled ? 'true' : 'false']
+        );
+
+        if ($enrolled) {
             return $this->instantiateMethod($method);
         }
 
@@ -273,6 +306,12 @@ class MfaDispatcher implements ActionInterface
                 'set it up yet. Check app/Config/MfaDispatcher.php.'
             );
         }
+
+        DiagnosticLog::write(
+            'info',
+            'MfaDispatcher resolveRequiredMethod: routing user_id {user_id} into forced setup ({activator}) for method "{method}".',
+            ['user_id' => $user->id, 'activator' => $activatorClass, 'method' => $method]
+        );
 
         return new $activatorClass();
     }

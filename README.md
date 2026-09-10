@@ -307,6 +307,32 @@ array wins - this package doesn't try to infer which of your groups is
 realistically hold more than one (e.g. `'superadmin'` before
 `'admin'`).
 
+## Diagnostic logging is gated to development only
+
+`MfaDispatcher::show()`/`resolveRequiredMethod()` and
+`MethodEnrollmentChecker::isEnrolled()` log detailed information
+(`user_id`, method keys, resolved class names, and - for `show()` -
+the current request URI) while resolving which action applies to a
+given login. This was added while diagnosing a real, confirmed bug
+(see "A user with an existing passkey was still routed into
+enrollment" in `shield-passkey-mfa`'s own README for the fuller story)
+and is left in permanently, since it's genuinely useful the next time
+something in this resolution logic needs diagnosing.
+
+**A real concern, worth addressing directly:** logging `user_id`
+values (and, in `show()`'s case, full request URIs) on every
+MFA-required login isn't something that should silently accumulate in
+a production application's log just because a past investigation
+needed the visibility. All of it is routed through
+`MfaDispatcher\Libraries\DiagnosticLog::write()`, a thin wrapper around
+`log_message()` that only actually writes when `ENVIRONMENT ===
+'development'` - in any other environment (staging, production,
+testing), these calls are silent no-ops. If you need this visibility
+again on a production-like environment, the practical option is
+reproducing the issue with `CI_ENVIRONMENT=development` set for that
+specific session, not turning on logging that writes to your real
+production log continuously.
+
 ## Step-up auth for sensitive pages (`RequireFreshMfa` filter)
 
 `shield-totp-mfa`, `shield-whatsapp-mfa`, and `shield-passkey-mfa` each
