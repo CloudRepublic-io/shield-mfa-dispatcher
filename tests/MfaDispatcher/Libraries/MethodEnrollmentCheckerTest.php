@@ -9,6 +9,7 @@ use CodeIgniter\Shield\Models\UserModel;
 use CodeIgniter\Test\CIUnitTestCase;
 use CodeIgniter\Test\DatabaseTestTrait;
 use MfaDispatcher\Libraries\MethodEnrollmentChecker;
+use Tests\MfaDispatcher\Support\FakeCustomMethodStore;
 
 /**
  * Tests MethodEnrollmentChecker directly, in isolation. Uses fakes/
@@ -31,6 +32,14 @@ final class MethodEnrollmentCheckerTest extends CIUnitTestCase
         parent::setUp();
 
         config('MfaDispatcher')->customEnrollmentCheckers = [];
+        FakeCustomMethodStore::reset();
+    }
+
+    protected function tearDown(): void
+    {
+        parent::tearDown();
+
+        FakeCustomMethodStore::reset();
     }
 
     private function makeUser(): User
@@ -121,6 +130,32 @@ final class MethodEnrollmentCheckerTest extends CIUnitTestCase
         $checker->isEnrolled('yubikey', $user);
 
         $this->assertSame([$user->id], $receivedUserIds);
+    }
+
+    /**
+     * THE recommended form, confirmed working end to end - see
+     * Config\MfaDispatcher::$customEnrollmentCheckers's own, corrected
+     * doc comment for why a [ClassName::class, 'staticMethodName'] pair
+     * is recommended over a Closure: unlike a Closure, it's a valid
+     * compile-time constant, usable directly as that property's own
+     * default value with no constructor workaround needed - a real
+     * report confirmed a Closure moved into a constructor still didn't
+     * resolve reliably in practice.
+     */
+    public function testTheRecommendedStaticMethodReferenceFormWorksCorrectly(): void
+    {
+        config('MfaDispatcher')->customEnrollmentCheckers = [
+            'yubikey' => [FakeCustomMethodStore::class, 'checkEnrollment'],
+        ];
+
+        $checker = new MethodEnrollmentChecker();
+        $user    = $this->makeUser();
+
+        $this->assertFalse($checker->isEnrolled('yubikey', $user));
+
+        FakeCustomMethodStore::$enrolledUserIds[$user->id] = true;
+
+        $this->assertTrue($checker->isEnrolled('yubikey', $user));
     }
 
     /**

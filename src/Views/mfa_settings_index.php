@@ -13,25 +13,46 @@
 
 <p><?= lang('MfaDispatcher.intro') ?></p>
 
+<?php if ($requiredMethod !== null) : ?>
+    <div class="alert alert-info">
+        <?= str_replace(
+            '{method}',
+            '<strong>' . esc(lang('MfaDispatcher.methodLabel_' . $requiredMethod) ?: ucfirst($requiredMethod)) . '</strong>',
+            lang('MfaDispatcher.requiredMethodBanner')
+        ) ?>
+    </div>
+<?php endif ?>
+
 <div class="list-group mb-3">
     <?php foreach ($methods as $key => $class) : ?>
-        <div class="list-group-item d-flex justify-content-between align-items-center">
+        <?php $overriddenByRequirement = $requiredMethod !== null && $key !== $requiredMethod; ?>
+        <div class="list-group-item d-flex justify-content-between align-items-center<?= $overriddenByRequirement ? ' opacity-50' : '' ?>">
             <div>
                 <strong><?= esc(lang('MfaDispatcher.methodLabel_' . $key) ?: ucfirst($key)) ?></strong>
                 <?php if ($key === $current) : ?>
                     <span class="badge bg-primary ms-2">Active</span>
                 <?php endif ?>
+                <?php if ($requiredMethod !== null && $key === $requiredMethod) : ?>
+                    <span class="badge bg-warning text-dark ms-2"><?= lang('MfaDispatcher.requiredMethodBadge') ?></span>
+                <?php endif ?>
 
-                <?php if ($key === 'totp' && $totpAvailable && ! $totpEnrolled) : ?>
+                <?php if (! $overriddenByRequirement && $key === 'totp' && $totpAvailable && ! $totpEnrolled) : ?>
                     <div class="text-muted small"><?= lang('MfaDispatcher.totpNeedsSetup') ?></div>
                 <?php endif ?>
-                <?php if ($key === 'whatsapp' && $whatsappAvailable && ! $whatsappVerified) : ?>
+                <?php if (! $overriddenByRequirement && $key === 'whatsapp' && $whatsappAvailable && ! $whatsappVerified) : ?>
                     <div class="text-muted small"><?= lang('MfaDispatcher.whatsappNeedsSetup') ?></div>
+                <?php endif ?>
+                <?php if ($overriddenByRequirement) : ?>
+                    <div class="text-muted small"><?= str_replace('{method}', esc(lang('MfaDispatcher.methodLabel_' . $requiredMethod) ?: ucfirst($requiredMethod)), lang('MfaDispatcher.requiredMethodDisabledNote')) ?></div>
                 <?php endif ?>
             </div>
 
             <div>
-                <?php if ($key === $current) : ?>
+                <?php if ($overriddenByRequirement) : ?>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled>
+                        <?= lang('MfaDispatcher.chooseButton') ?>
+                    </button>
+                <?php elseif ($key === $current) : ?>
                     <?php if ($key === 'totp') : ?>
                         <form method="post" action="<?= url_to('mfa-settings-totp-disable') ?>" class="d-inline" onsubmit="return confirm('Remove your authenticator app?');">
                             <?= csrf_field() ?>

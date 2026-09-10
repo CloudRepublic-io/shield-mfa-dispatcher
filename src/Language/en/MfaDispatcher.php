@@ -10,6 +10,14 @@ return [
     'unknownMethod'    => 'That verification method isn\'t available.',
     'updated'          => 'Your verification method has been updated.',
 
+    // Config\MfaDispatcher::$requiredMethodsForGroups - shown/enforced
+    // when the signed-in user belongs to a group that mandates a
+    // specific method, overriding their own preference entirely.
+    'requiredMethodBanner'         => 'Your account requires {method} for verification. This is set by policy and can\'t be changed here - the options below won\'t take effect.',
+    'requiredMethodBadge'          => 'Required',
+    'requiredMethodDisabledNote'   => 'Not available - {method} is required for your account.',
+    'cannotChooseRequiredOverride' => 'Your account requires a specific verification method, so this choice won\'t be used. No change was made.',
+
     'methodLabel_email'    => 'Email code',
     'methodLabel_whatsapp' => 'WhatsApp code',
     'methodLabel_totp'     => 'Authenticator app',

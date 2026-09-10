@@ -8,6 +8,7 @@ use CodeIgniter\Controller;
 use CodeIgniter\HTTP\RedirectResponse;
 use CodeIgniter\Shield\Entities\User;
 use Config\MfaDispatcher as MfaDispatcherConfig;
+use MfaDispatcher\Libraries\MfaMethodResolver;
 use MfaDispatcher\Libraries\MfaPreference;
 
 /**
@@ -29,16 +30,31 @@ use MfaDispatcher\Libraries\MfaPreference;
  * and by the standalone shield-totp-mfa/shield-whatsapp-mfa settings
  * pages too, if a user reaches those directly instead), without
  * duplicating the enrollment/verification logic in three places.
+ *
+ * REQUIRED-METHOD AWARENESS - a real, confirmed source of confusion
+ * this addresses: a user in a group covered by
+ * Config\MfaDispatcher::$requiredMethodsForGroups has their own
+ * preference overridden entirely at login (see
+ * MfaDispatcher::resolveRequiredMethod()) - so this page previously
+ * let them "choose" a different method that would silently never
+ * actually be used, with nothing on the page explaining why. index()
+ * now resolves and passes the required method (if any) to the view,
+ * which shows a banner and disables choosing anything else; choose()
+ * also refuses server-side, since the view-level disabling is a UX
+ * courtesy, not a security boundary - a user could otherwise still
+ * POST a different method directly.
  */
 class MfaSettingsController extends Controller
 {
     protected MfaDispatcherConfig $config;
     protected MfaPreference $preference;
+    protected MfaMethodResolver $resolver;
 
     public function __construct()
     {
         $this->config     = config('MfaDispatcher');
         $this->preference = new MfaPreference();
+        $this->resolver   = new MfaMethodResolver();
     }
 
     public function index(): string
@@ -48,6 +64,7 @@ class MfaSettingsController extends Controller
         return view($this->config->views['mfa_settings_index'], [
             'methods'           => $this->config->methods,
             'current'           => $this->preference->get($user) ?? $this->config->defaultMethod,
+            'requiredMethod'    => $this->resolver->requiredMethodFor($user),
             'totpAvailable'     => $this->totpLibraryAvailable(),
             'totpEnrolled'      => $this->totpLibraryAvailable() && $this->totpStore()->hasEnrolled($user),
             'whatsappAvailable' => $this->whatsappLibraryAvailable(),
@@ -62,6 +79,19 @@ class MfaSettingsController extends Controller
 
         if (! array_key_exists($method, $this->config->methods)) {
             return redirect()->back()->with('error', lang('MfaDispatcher.unknownMethod'));
+        }
+
+        $requiredMethod = $this->resolver->requiredMethodFor($user);
+
+        if ($requiredMethod !== null && $method !== $requiredMethod) {
+            // Not a security boundary being enforced here - the
+            // required method already wins over any stored preference
+            // at login/step-up regardless (MfaMethodResolver itself
+            // guarantees that). This exists purely so the user's OWN
+            // stored preference doesn't drift into a value that will
+            // never actually be honored, which would be confusing to
+            // see reflected as "current" on this same page.
+            return redirect()->route('mfa-settings')->with('error', lang('MfaDispatcher.cannotChooseRequiredOverride'));
         }
 
         if ($method === 'totp' && ! ($this->totpLibraryAvailable() && $this->totpStore()->hasEnrolled($user))) {

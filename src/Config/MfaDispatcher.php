@@ -137,19 +137,58 @@ class MfaDispatcher extends BaseConfig
      * would ever tell the checker to look again and find a different
      * answer.
      *
-     * method key => any PHP callable accepting a
-     * CodeIgniter\Shield\Entities\User and returning bool (true if that
-     * specific user has already set this method up). A Closure is the
-     * safest, most broadly correct form - see the example below. A
-     * [ClassName::class, 'methodName'] pair also works, but ONLY if
-     * that method is actually static; the existing packages' own
-     * hasEnrolled()/hasVerifiedPhoneNumber() methods are instance
-     * methods, so wrapping one of those directly needs a Closure (or
-     * an already-instantiated object, [$instance, 'methodName']) rather
-     * than a bare class-string pair. Only consulted for method keys
-     * NOT already known natively - registering a custom checker for
-     * 'totp'/'whatsapp'/'passkey'/'email' has no effect, since those
-     * already have a fixed, tested answer.
+     * CORRECTION - an earlier version of this doc comment recommended
+     * a Closure as the primary form, with an example showing one as
+     * this array's own default value. That was wrong, and would fail
+     * outright for anyone who actually used it: PHP has never allowed
+     * a Closure (or any non-constant expression) as a class property's
+     * default value, since property defaults are evaluated at compile
+     * time, not per-instance at runtime - "Constant expression contains
+     * invalid operations" is the fatal error this produces. A real
+     * report confirmed this, and also confirmed that moving the
+     * assignment into this config class's own __construct() - a
+     * seemingly reasonable workaround - still didn't resolve the
+     * problem reliably in practice.
+     *
+     * THE RECOMMENDED FORM: a [ClassName::class, 'staticMethodName']
+     * pair, where that method IS genuinely static. Unlike a Closure,
+     * this is just an array of two strings - a valid compile-time
+     * constant, usable directly as this property's own default value
+     * below, with no constructor workaround needed at all:
+     *
+     *   public array $customEnrollmentCheckers = [
+     *       'yubikey' => [\App\Libraries\YubikeyIdentityStore::class, 'checkEnrollment'],
+     *   ];
+     *
+     * Since hasEnrolled()-style methods on this series' own store
+     * classes are instance methods, not static ones, add a small static
+     * wrapper to your own store rather than trying to reference an
+     * instance method directly:
+     *
+     *   class YubikeyIdentityStore
+     *   {
+     *       public static function checkEnrollment(User $user): bool
+     *       {
+     *           return (new self())->hasEnrolled($user);
+     *       }
+     *
+     *       public function hasEnrolled(User $user): bool { ... }
+     *   }
+     *
+     * A Closure or [$instance, 'methodName'] pair also still works
+     * technically (MethodEnrollmentChecker::isEnrolled() calls whatever
+     * is here as a plain callable, regardless of form) - but neither
+     * can be a DEFAULT value for this property directly, only something
+     * assigned to it later (e.g. from your own constructor, or
+     * mutated at runtime) - and a Closure specifically carries the
+     * added, unresolved uncertainty above. The static-method form is
+     * recommended specifically because it works safely and directly as
+     * this array's own default, with nothing else needed.
+     *
+     * Only consulted for method keys NOT already known natively -
+     * registering a custom checker for 'totp'/'whatsapp'/'passkey'/
+     * 'email' has no effect, since those already have a fixed, tested
+     * answer.
      *
      * You do NOT need an entry here for a custom method you're only
      * ever using via the plain, non-required, preference-based flow
@@ -160,8 +199,7 @@ class MfaDispatcher extends BaseConfig
      * @var array<string, callable(\CodeIgniter\Shield\Entities\User): bool>
      */
     public array $customEnrollmentCheckers = [
-        // 'yubikey' => static fn (\CodeIgniter\Shield\Entities\User $user): bool
-        //     => (new \App\Libraries\YubikeyIdentityStore())->hasEnrolled($user),
+        // 'yubikey' => [\App\Libraries\YubikeyIdentityStore::class, 'checkEnrollment'],
     ];
 
     // -- Step-up auth for sensitive pages (RequireFreshMfa filter) ----------

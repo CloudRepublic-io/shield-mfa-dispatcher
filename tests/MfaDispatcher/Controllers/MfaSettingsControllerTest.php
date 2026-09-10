@@ -130,4 +130,60 @@ final class MfaSettingsControllerTest extends CIUnitTestCase
 
         $this->assertNull($preference->get($user));
     }
+
+    // -------------------------------------------------------------------
+    // Required-method awareness - a real, confirmed source of
+    // confusion this addresses: a user whose group requires a specific
+    // method has their own preference overridden entirely at login, so
+    // "choosing" a different method here would silently never actually
+    // be used. index() surfaces the required method to the view (banner
+    // + disabled options); choose() also refuses server-side, since the
+    // view-level disabling is a UX courtesy, not a security boundary.
+    // -------------------------------------------------------------------
+
+    public function testChooseRejectsAMethodOverriddenByARequiredGroup(): void
+    {
+        $user = $this->makeUser();
+        $user->addGroup('superadmin');
+        $this->actingAs($user);
+
+        service('settings')->set('MfaDispatcher.requiredMethodsForGroups', ['superadmin' => 'fake']);
+
+        $preference = new MfaPreference();
+        $preference->set($user, 'fake'); // starting preference, unrelated to the choice being rejected below
+
+        $this->makeController(['method' => 'fake2'])->choose();
+
+        // Unchanged - the rejected choice never got applied.
+        $this->assertSame('fake', $preference->get($user));
+    }
+
+    public function testChoosingTheRequiredMethodItselfStillWorks(): void
+    {
+        $user = $this->makeUser();
+        $user->addGroup('superadmin');
+        $this->actingAs($user);
+
+        service('settings')->set('MfaDispatcher.requiredMethodsForGroups', ['superadmin' => 'fake2']);
+
+        $preference = new MfaPreference();
+
+        $this->makeController(['method' => 'fake2'])->choose();
+
+        $this->assertSame('fake2', $preference->get($user));
+    }
+
+    public function testIndexStillRendersSuccessfullyForAUserWithARequiredMethod(): void
+    {
+        $user = $this->makeUser();
+        $user->addGroup('superadmin');
+        $this->actingAs($user);
+
+        service('settings')->set('MfaDispatcher.requiredMethodsForGroups', ['superadmin' => 'fake']);
+
+        $body = $this->makeController()->index();
+
+        $this->assertIsString($body);
+        $this->assertNotSame('', $body);
+    }
 }

@@ -307,6 +307,45 @@ array wins - this package doesn't try to infer which of your groups is
 realistically hold more than one (e.g. `'superadmin'` before
 `'admin'`).
 
+### The settings page reflects a required method, rather than silently ignoring it
+
+`MfaSettingsController`'s own page (`account/mfa` in the sample routes)
+lets a user choose their own method - but a user whose group requires
+one specific method has that choice overridden entirely at login
+regardless of what they pick here (see `resolveRequiredMethod()`
+above). Without anything on the page saying so, a user could "choose"
+a different method, see it reflected as their own stored preference,
+and never realize it will never actually be used - a real, confirmed
+source of confusion.
+
+The page now resolves the required method (if any) via the same
+`MfaMethodResolver::requiredMethodFor()` used at login, and:
+
+- shows a banner explaining that a specific method is required and why
+  the choices below won't change anything,
+- marks that method's own row with a "Required" badge,
+- visually disables every *other* method's own "use this method"
+  action (and any not-yet-enrolled/setup messaging for those, which
+  would otherwise be genuinely misleading to show alongside a disabled
+  action).
+
+`choose()` also refuses server-side if posted a method other than the
+required one - the view-level disabling above is a UX courtesy, not a
+security boundary, since a user could otherwise still POST a different
+method directly. Rejecting it isn't a security fix (the required
+method already always wins over any stored preference regardless,
+enforced independently by `MfaMethodResolver` at login) - it exists
+purely so a user's own stored preference doesn't drift into a value
+that will never actually be honored, which would still be confusing to
+see reflected as "Active" on this same page later.
+
+Deliberately **not** blocked: enrolling in, or disabling, a
+non-required method's own setup (an authenticator app, a WhatsApp
+number) - a user may reasonably want a method set up in advance for
+when a policy changes, or simply prefer having options. Only the
+*preference-choosing* action for a non-required method is disabled,
+since that's the part that would silently have no effect.
+
 ## Adding your own custom MFA method
 
 Everything in this package is built around method *keys* you define
@@ -363,17 +402,32 @@ package's own source.
 
    ```php
    public array $customEnrollmentCheckers = [
-       'yubikey' => static fn (\CodeIgniter\Shield\Entities\User $user): bool
-           => (new \App\Libraries\YubikeyIdentityStore())->hasEnrolled($user),
+       'yubikey' => [\App\Libraries\YubikeyIdentityStore::class, 'checkEnrollment'],
    ];
    ```
 
-   Any PHP callable works here - a `Closure` (as above), an
-   already-instantiated object paired with a method name
-   (`[$instance, 'hasEnrolled']`), or a `[ClassName::class,
-   'staticMethodName']` pair if the method is genuinely static. It just
-   needs to accept a `User` and return `bool` - true if that specific
-   user has already set your method up.
+   A `[ClassName::class,
+   'staticMethodName']` pair, as above, IS a valid compile-time
+   constant (just two strings) - usable directly as a default with no
+   workaround needed. Since a store's own `hasEnrolled()`-style method
+   is normally an instance method, not a static one, add a small static
+   wrapper rather than trying to reference the instance method
+   directly:
+
+   ```php
+   // In your own store class:
+   public static function checkEnrollment(\CodeIgniter\Shield\Entities\User $user): bool
+   {
+       return (new self())->hasEnrolled($user);
+   }
+   ```
+
+   A Closure still works technically if assigned to this property
+   *after* construction (e.g. from your own config class's
+   constructor) rather than as its default. The static-method form
+   above is recommended specifically because it sidesteps the entire
+   question, working safely and directly as this array's own default
+   value.
 
 5. **Optionally, add step-up support** - your own filter implementing
    `CodeIgniter\Filters\FilterInterface`, registered in
