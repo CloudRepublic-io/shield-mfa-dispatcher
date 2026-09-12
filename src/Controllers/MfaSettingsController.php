@@ -247,11 +247,25 @@ class MfaSettingsController extends Controller
      * resolveMethodLabels() builds for the main settings page. Same
      * Config\MfaDispatcher::$methodLabelResolvers lookup, same fallback,
      * just scoped to one key.
+     *
+     * is_callable() is checked (not just isset()) before invoking a
+     * registered resolver - CONFIRMED, REAL RISK this guards against:
+     * whatsappDisable() below does NOT return early when
+     * whatsappLibraryAvailable() is false (it just skips
+     * removeVerifiedPhoneNumber() and keeps going), so this method can
+     * still be reached for a user whose stored preference is
+     * 'whatsapp' even after shield-whatsapp-mfa itself has been
+     * uninstalled. A resolver referencing that now-absent package's own
+     * ChannelLabel class by name would otherwise fatal here -
+     * is_callable() checks safely, without invoking anything, and never
+     * throws even when the referenced class genuinely doesn't exist.
      */
     private function resolveWhatsAppLabel(): string
     {
-        if (isset($this->config->methodLabelResolvers['whatsapp'])) {
-            return (string) ($this->config->methodLabelResolvers['whatsapp'])();
+        $resolver = $this->config->methodLabelResolvers['whatsapp'] ?? null;
+
+        if ($resolver !== null && is_callable($resolver)) {
+            return (string) $resolver();
         }
 
         return lang('MfaDispatcher.methodLabel_whatsapp') ?: 'WhatsApp';
@@ -274,7 +288,10 @@ class MfaSettingsController extends Controller
         $user = auth()->user();
 
         if ($this->whatsappStore()->hasVerifiedPhoneNumber($user)) {
-            return redirect()->route('mfa-settings')->with('message', lang('MfaDispatcher.whatsappAlreadyVerified'));
+            return redirect()->route('mfa-settings')->with(
+                'message',
+                str_replace('{channel}', $this->resolveWhatsAppLabel(), lang('MfaDispatcher.whatsappAlreadyVerified'))
+            );
         }
 
         return view($this->config->views['mfa_settings_whatsapp_enroll'], [
@@ -369,7 +386,10 @@ class MfaSettingsController extends Controller
 
         $this->preference->set($user, 'whatsapp');
 
-        return redirect()->route('mfa-settings')->with('message', lang('MfaDispatcher.whatsappEnabled'));
+        return redirect()->route('mfa-settings')->with(
+            'message',
+            str_replace('{channel}', $this->resolveWhatsAppLabel(), lang('MfaDispatcher.whatsappEnabled'))
+        );
     }
 
     public function whatsappDisable(): RedirectResponse
@@ -388,7 +408,11 @@ class MfaSettingsController extends Controller
 
         return redirect()->route('mfa-settings')->with(
             'message',
-            str_replace('{method}', $fallback, lang('MfaDispatcher.whatsappDisabled'))
+            str_replace(
+                ['{channel}', '{method}'],
+                [$this->resolveWhatsAppLabel(), $fallback],
+                lang('MfaDispatcher.whatsappDisabled')
+            )
         );
     }
 

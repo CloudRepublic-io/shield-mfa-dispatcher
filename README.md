@@ -712,6 +712,19 @@ specific fix exercised directly, that would require adding
 `shield-whatsapp-mfa` as a dev dependency of this package specifically
 to test it, a larger change than the fix itself.
 
+**A related follow-up, found via a real report after the channel-label
+fix above went out: `whatsappAlreadyVerified` was still hardcoded.**
+Shown when `whatsappEnroll()` is reached by a user who already has a
+verified number - "A WhatsApp number is already verified on this
+account," regardless of the configured channel. Missed in the first
+pass specifically because a broad search for "WhatsApp" text across
+this file's own hardcoded strings was run *before* this particular
+message's own code path was traced through by hand - a reminder that a
+text search alone doesn't guarantee every runtime-reachable string was
+actually caught. Fixed the same way as the others: a `{channel}`
+placeholder in the language string, substituted via
+`resolveWhatsAppLabel()` at the one call site.
+
 ## Graceful degradation
 
 If `Config\MfaDispatcher::$methods` lists `'totp'` or `'whatsapp'` but

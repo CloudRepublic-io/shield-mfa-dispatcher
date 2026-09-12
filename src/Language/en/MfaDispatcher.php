@@ -22,6 +22,7 @@ return [
     'methodLabel_email'    => 'Email code',
     'methodLabel_whatsapp' => 'WhatsApp code',
     'methodLabel_totp'     => 'Authenticator app',
+    'methodLabel_passkey'  => 'Passkey',
 
     // TOTP self-service enrollment
     'totpNotInstalled' => 'The authenticator app option isn\'t available on this install.',
@@ -52,9 +53,9 @@ return [
     'whatsappChangeNumberButton'  => 'Use a different number',
     'whatsappInvalidCode'         => 'That code is incorrect. Please try again.',
     'whatsappNoPendingCode'       => 'No pending verification found. Please start again.',
-    'whatsappEnabled'             => 'WhatsApp number verified and set as your verification method.',
+    'whatsappEnabled'             => '{channel} number verified and set as your verification method.',
     'whatsappDisableButton'       => 'Remove {channel} number',
     'whatsappRemoveConfirm'       => 'Remove your verified {channel} number?',
-    'whatsappDisabled'            => 'WhatsApp number removed. Switched back to {method}.',
-    'whatsappAlreadyVerified'     => 'A WhatsApp number is already verified on this account.',
+    'whatsappDisabled'            => '{channel} number removed. Switched back to {method}.',
+    'whatsappAlreadyVerified'     => 'A {channel} number is already verified on this account.',
 ];
