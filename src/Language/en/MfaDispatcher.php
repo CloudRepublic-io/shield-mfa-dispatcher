@@ -38,13 +38,14 @@ return [
 
     // WhatsApp self-service phone verification
     'whatsappNotInstalled'        => 'The WhatsApp option isn\'t available on this install.',
-    'whatsappNeedsSetup'          => 'Verify a WhatsApp number first to enable this option.',
-    'whatsappSetupButton'         => 'Verify WhatsApp number',
-    'whatsappEnrollIntro'         => 'Enter a WhatsApp number and we\'ll send a code to confirm you control it.',
-    'whatsappPhoneLabel'          => 'WhatsApp number',
+    'whatsappNeedsSetup'          => 'Verify a {channel} number first to enable this option.',
+    'whatsappSetupButton'         => 'Verify {channel} number',
+    'whatsappEnrollIntro'         => 'Enter a {channel} number and we\'ll send a code to confirm you control it.',
+    'whatsappPhoneLabel'          => '{channel} number',
     'whatsappPhonePlaceholder'    => 'e.g. +14155551234',
     'whatsappSendCodeButton'      => 'Send code',
     'whatsappInvalidPhoneNumber'  => 'Please enter a valid phone number.',
+    'whatsappSendFailedMessage'   => 'We couldn\'t send your code via {channel} right now. Please try again in a moment.',
     'whatsappVerifyIntro'         => 'Enter the 6-digit code we sent to the number ending in {phone}.',
     'whatsappCodeLabel'           => 'Verification code',
     'whatsappConfirmButton'       => 'Confirm and enable',
@@ -52,7 +53,8 @@ return [
     'whatsappInvalidCode'         => 'That code is incorrect. Please try again.',
     'whatsappNoPendingCode'       => 'No pending verification found. Please start again.',
     'whatsappEnabled'             => 'WhatsApp number verified and set as your verification method.',
-    'whatsappDisableButton'       => 'Remove WhatsApp number',
+    'whatsappDisableButton'       => 'Remove {channel} number',
+    'whatsappRemoveConfirm'       => 'Remove your verified {channel} number?',
     'whatsappDisabled'            => 'WhatsApp number removed. Switched back to {method}.',
     'whatsappAlreadyVerified'     => 'A WhatsApp number is already verified on this account.',
 ];

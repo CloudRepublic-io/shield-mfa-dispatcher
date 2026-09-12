@@ -2,7 +2,7 @@
 
 <?= $this->section('main') ?>
 
-<h1 class="h3 mb-3"><?= lang('MfaDispatcher.whatsappSetupButton') ?></h1>
+<h1 class="h3 mb-3"><?= str_replace('{channel}', esc($whatsappLabel), lang('MfaDispatcher.whatsappSetupButton')) ?></h1>
 
 <?php if (session('error')) : ?>
     <div class="alert alert-danger"><?= esc(session('error')) ?></div>

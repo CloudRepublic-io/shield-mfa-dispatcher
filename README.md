@@ -409,6 +409,27 @@ for why a `[ClassName::class, 'staticMethodName']` pair is recommended
 over a Closure, and why this package deliberately never reaches into a
 specific sibling package's own classes by name).
 
+**A real, confirmed follow-up: the method's own label wasn't the only
+place "WhatsApp" was hardcoded.** The self-service settings page's
+"Remove WhatsApp number" disable button, its confirmation prompt, and
+the separate WhatsApp enrollment sub-pages (`mfa-settings-whatsapp-enroll`/
+`-verify`) all had their own, independent hardcoded "WhatsApp" text -
+different language keys from `methodLabel_whatsapp`, missed by the
+first pass of this fix since they're genuinely separate strings, not
+just the same one reused. All of these now substitute a `{channel}`
+placeholder via the same resolved label - `mfa_settings_index.php` via
+the `methodLabels` map `index()` already builds, and the three
+dedicated WhatsApp enrollment views via a new, single-method
+`resolveWhatsAppLabel()` controller helper (since those views only ever
+need this one method's label, not the full per-method map).
+Deliberately left alone: the "package not installed" messages
+(`whatsappNotInstalled`, and `mfa_settings_whatsapp_unavailable.php`'s
+own heading) - those keep a plain, static "WhatsApp" fallback rather
+than attempting to resolve a channel, since if the package genuinely
+isn't installed, calling a resolver that likely references a class
+from that same absent package would risk a class-not-found error
+rather than a graceful fallback.
+
 ## Adding your own custom MFA method
 
 Everything in this package is built around method *keys* you define
@@ -651,6 +672,45 @@ package itself; `MfaSettingsController` just calls their public
 methods directly - `beginEnrollment()`/`confirmEnrollment()`/`disable()`
 for TOTP, `beginVerification()`/`confirmVerification()`/`removeVerifiedPhoneNumber()`
 for WhatsApp.
+
+## A sender failure here left an orphaned pending record too - fixed
+
+**Fixed in the current version.** `whatsappSend()` had the identical
+bug already fixed in `shield-whatsapp-mfa` itself (see that package's
+own README, "A sender failure left an orphaned pending record behind -
+fixed", for the full account of the original report): `beginVerification()`
+creates a pending record, then the configured sender is called with no
+`try`/`catch` at all. A thrown exception - a real Twilio/Meta API
+error, a network issue, a misconfigured API key - propagated straight
+through uncaught, crashing the request and leaving that pending record
+orphaned indefinitely, since `confirmVerification()` (the only code
+that would otherwise delete it) never got a chance to run.
+
+This package has its own, separate copy of the WhatsApp enrollment flow
+specifically so a settings page exists even for an app that hasn't
+wired `shield-whatsapp-mfa`'s own standalone settings page into its
+routes - so fixing the other package alone never covered this one; the
+bug lived independently in both places.
+
+**Fixed:** `whatsappSend()` now wraps the sender call in
+`try { ... } catch (\Throwable $e) { ... }`, calling
+`PhoneNumberStore::cancelVerification()` to roll back the pending
+record and showing `MfaDispatcher.whatsappSendFailedMessage` (itself
+`{channel}`-aware, via the same `resolveWhatsAppLabel()` helper used
+elsewhere on this page) instead of crashing.
+
+**Not covered by this package's own test suite - a genuine, pre-existing
+limitation, not something new here:** `shield-whatsapp-mfa` is listed
+only under this package's `composer.json` `suggest` block, not as a
+test dependency, so `whatsappLibraryAvailable()` always returns `false`
+in this package's own isolated tests, and every WhatsApp-related
+controller method (this one included) short-circuits before reaching
+any of the logic this fix touches. The identical fix in
+`shield-whatsapp-mfa` itself - where the real package genuinely is
+present - does have full regression test coverage; if you want this
+specific fix exercised directly, that would require adding
+`shield-whatsapp-mfa` as a dev dependency of this package specifically
+to test it, a larger change than the fix itself.
 
 ## Graceful degradation
 

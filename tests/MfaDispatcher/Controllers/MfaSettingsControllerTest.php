@@ -345,4 +345,39 @@ final class MfaSettingsControllerTest extends CIUnitTestCase
         // environment).
         $this->assertStringContainsString('Fake2', $body);
     }
+
+    /**
+     * THE regression test for a real, confirmed follow-up: a resolved
+     * channel label was being used for the 'whatsapp' method's own
+     * display label, but its "Remove {channel} number" disable button
+     * and confirmation text were still hardcoded to say "WhatsApp"
+     * regardless - a separate string from the method label itself,
+     * missed by that first fix. Deliberately configures 'whatsapp' as
+     * a real method key here (pointing at a fake action, since the
+     * real shield-whatsapp-mfa package isn't installed in this test
+     * environment) specifically to exercise this exact code path.
+     */
+    public function testTheWhatsAppDisableButtonAndConfirmTextReflectTheResolvedChannelLabel(): void
+    {
+        $user = $this->makeUser();
+        $this->actingAs($user);
+
+        $config          = config('MfaDispatcher');
+        $config->methods = [
+            'fake'     => FakeAction::class,
+            'whatsapp' => FakeActionTwo::class,
+        ];
+        $config->methodLabelResolvers = [
+            'whatsapp' => [FakeMethodLabelResolver::class, 'current'],
+        ];
+        FakeMethodLabelResolver::$label = 'SMS';
+
+        (new MfaPreference())->set($user, 'whatsapp');
+
+        $body = $this->makeController()->index();
+
+        $this->assertStringContainsString('Remove SMS number', $body);
+        $this->assertStringNotContainsString('Remove WhatsApp number', $body);
+        $this->assertStringContainsString('Remove your verified SMS number?', $body);
+    }
 }

@@ -40,7 +40,7 @@
                     <div class="text-muted small"><?= lang('MfaDispatcher.totpNeedsSetup') ?></div>
                 <?php endif ?>
                 <?php if (! $overriddenByRequirement && $key === 'whatsapp' && $whatsappAvailable && ! $whatsappVerified) : ?>
-                    <div class="text-muted small"><?= lang('MfaDispatcher.whatsappNeedsSetup') ?></div>
+                    <div class="text-muted small"><?= str_replace('{channel}', esc($methodLabels['whatsapp'] ?? 'WhatsApp'), lang('MfaDispatcher.whatsappNeedsSetup')) ?></div>
                 <?php endif ?>
                 <?php if ($overriddenByRequirement) : ?>
                     <div class="text-muted small"><?= str_replace('{method}', esc($methodLabels[$requiredMethod] ?? ucfirst($requiredMethod)), lang('MfaDispatcher.requiredMethodDisabledNote')) ?></div>
@@ -65,10 +65,10 @@
                         </form>
                     <?php endif ?>
                     <?php if ($key === 'whatsapp') : ?>
-                        <form method="post" action="<?= url_to('mfa-settings-whatsapp-disable') ?>" class="d-inline" onsubmit="return confirm('Remove your verified WhatsApp number?');">
+                        <form method="post" action="<?= url_to('mfa-settings-whatsapp-disable') ?>" class="d-inline" onsubmit="return confirm('<?= esc(str_replace('{channel}', $methodLabels['whatsapp'] ?? 'WhatsApp', lang('MfaDispatcher.whatsappRemoveConfirm')), 'js') ?>');">
                             <?= csrf_field() ?>
                             <button type="submit" class="btn btn-sm btn-outline-danger">
-                                <?= lang('MfaDispatcher.whatsappDisableButton') ?>
+                                <?= esc(str_replace('{channel}', $methodLabels['whatsapp'] ?? 'WhatsApp', lang('MfaDispatcher.whatsappDisableButton'))) ?>
                             </button>
                         </form>
                     <?php endif ?>
@@ -82,7 +82,7 @@
                     <span class="text-muted small"><?= lang('MfaDispatcher.whatsappNotInstalled') ?></span>
                 <?php elseif ($key === 'whatsapp' && ! $whatsappVerified) : ?>
                     <a href="<?= url_to('mfa-settings-whatsapp-enroll') ?>" class="btn btn-sm btn-primary">
-                        <?= lang('MfaDispatcher.whatsappSetupButton') ?>
+                        <?= str_replace('{channel}', esc($methodLabels['whatsapp'] ?? 'WhatsApp'), lang('MfaDispatcher.whatsappSetupButton')) ?>
                     </a>
                 <?php elseif ($requiredMethod !== null && $key === $requiredMethod) : ?>
                     <button type="button" class="btn btn-sm btn-outline-secondary" disabled>

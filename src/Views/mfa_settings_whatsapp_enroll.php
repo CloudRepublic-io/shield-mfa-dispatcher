@@ -2,19 +2,19 @@
 
 <?= $this->section('main') ?>
 
-<h1 class="h3 mb-3"><?= lang('MfaDispatcher.whatsappSetupButton') ?></h1>
+<h1 class="h3 mb-3"><?= str_replace('{channel}', esc($whatsappLabel), lang('MfaDispatcher.whatsappSetupButton')) ?></h1>
 
 <?php if (session('error')) : ?>
     <div class="alert alert-danger"><?= esc(session('error')) ?></div>
 <?php endif ?>
 
-<p><?= lang('MfaDispatcher.whatsappEnrollIntro') ?></p>
+<p><?= str_replace('{channel}', esc($whatsappLabel), lang('MfaDispatcher.whatsappEnrollIntro')) ?></p>
 
 <form method="post" action="<?= url_to('mfa-settings-whatsapp-send') ?>">
     <?= csrf_field() ?>
 
     <div class="mb-3">
-        <label for="phone" class="form-label"><?= lang('MfaDispatcher.whatsappPhoneLabel') ?></label>
+        <label for="phone" class="form-label"><?= str_replace('{channel}', esc($whatsappLabel), lang('MfaDispatcher.whatsappPhoneLabel')) ?></label>
         <input
             type="tel"
             id="phone"

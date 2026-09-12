@@ -240,6 +240,23 @@ class MfaSettingsController extends Controller
         return $response;
     }
 
+    /**
+     * Just the 'whatsapp' method's own current label - for the
+     * self-service WhatsApp enrollment views below, which only ever
+     * need this one method's label, not the full per-method map
+     * resolveMethodLabels() builds for the main settings page. Same
+     * Config\MfaDispatcher::$methodLabelResolvers lookup, same fallback,
+     * just scoped to one key.
+     */
+    private function resolveWhatsAppLabel(): string
+    {
+        if (isset($this->config->methodLabelResolvers['whatsapp'])) {
+            return (string) ($this->config->methodLabelResolvers['whatsapp'])();
+        }
+
+        return lang('MfaDispatcher.methodLabel_whatsapp') ?: 'WhatsApp';
+    }
+
     // -------------------------------------------------------------------
     // WhatsApp self-service phone verification (only relevant if the
     // WhatsAppMfa package is installed alongside this one). Three
@@ -260,7 +277,9 @@ class MfaSettingsController extends Controller
             return redirect()->route('mfa-settings')->with('message', lang('MfaDispatcher.whatsappAlreadyVerified'));
         }
 
-        return view($this->config->views['mfa_settings_whatsapp_enroll']);
+        return view($this->config->views['mfa_settings_whatsapp_enroll'], [
+            'whatsappLabel' => $this->resolveWhatsAppLabel(),
+        ]);
     }
 
     public function whatsappSend(): RedirectResponse
@@ -286,7 +305,31 @@ class MfaSettingsController extends Controller
         $senderClass    = $whatsAppConfig->sender;
         /** @var \WhatsAppMfa\Sender\WhatsAppSenderInterface $sender */
         $sender = new $senderClass();
-        $sender->send($phone, $code, $whatsAppConfig);
+
+        // CONFIRMED, REAL BUG FIXED HERE - identical to the one already
+        // fixed at all four call sites inside shield-whatsapp-mfa
+        // itself (see that package's own README, "A sender failure left
+        // an orphaned pending record behind - fixed", for the fuller
+        // account): beginVerification() above already creates a pending
+        // record before send() is even attempted, and send() throwing
+        // (a real Twilio/Meta API error, a network issue, a
+        // misconfigured API key) was previously completely uncaught
+        // here too, crashing the whole request and leaving that record
+        // orphaned indefinitely - this package has its own separate
+        // copy of the enrollment flow, so fixing the other package
+        // alone never covered this one. \Throwable (not
+        // RuntimeException) is used so this doesn't depend on which
+        // exception class a given sender implementation happens to use.
+        try {
+            $sender->send($phone, $code, $whatsAppConfig);
+        } catch (\Throwable $e) {
+            $this->whatsappStore()->cancelVerification($user);
+
+            return redirect()->back()->withInput()->with(
+                'error',
+                str_replace('{channel}', $this->resolveWhatsAppLabel(), lang('MfaDispatcher.whatsappSendFailedMessage'))
+            );
+        }
 
         return redirect()->route('mfa-settings-whatsapp-verify');
     }
@@ -306,7 +349,8 @@ class MfaSettingsController extends Controller
         }
 
         return view($this->config->views['mfa_settings_whatsapp_verify'], [
-            'phone_masked' => $this->maskPhone($phone),
+            'phone_masked'  => $this->maskPhone($phone),
+            'whatsappLabel' => $this->resolveWhatsAppLabel(),
         ]);
     }
 

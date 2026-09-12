@@ -2,7 +2,7 @@
 
 <?= $this->section('main') ?>
 
-<h1 class="h3 mb-3"><?= lang('MfaDispatcher.whatsappSetupButton') ?></h1>
+<h1 class="h3 mb-3"><?= str_replace('{channel}', 'WhatsApp', lang('MfaDispatcher.whatsappSetupButton')) ?></h1>
 
 <div class="alert alert-warning">
     <?= lang('MfaDispatcher.whatsappNotInstalled') ?>
