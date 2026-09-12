@@ -376,6 +376,39 @@ when a policy changes, or simply prefer having options. Only the
 *preference-choosing* action for a non-required method is disabled,
 since that's the part that would silently have no effect.
 
+### A method's own label can reflect something that changes at runtime
+
+Every method's display label on this page normally comes from a static
+string - `lang('MfaDispatcher.methodLabel_' . $key)`. That's fine for a
+method that's always just "TOTP" or "Email code" - but a method whose
+own delivery mechanism can change at runtime (shield-whatsapp-mfa's
+`Config\WhatsAppMfa::$channel`, which can switch between WhatsApp and
+plain SMS) would otherwise leave this one page still saying "WhatsApp
+code" regardless of which channel is actually configured - a real,
+user-visible inconsistency, since every one of that package's own pages
+correctly reflect the current channel already.
+
+`Config\MfaDispatcher::$methodLabelResolvers` is the fix - a method key
+=> callable map, where the callable takes no arguments and returns that
+method's current display label:
+
+```php
+public array $methodLabelResolvers = [
+    'whatsapp' => [\WhatsAppMfa\Libraries\ChannelLabel::class, 'current'],
+];
+```
+
+Only consulted for a method key that has an entry here - any method
+without one keeps using the static label exactly as before this
+property existed. This package remains completely ignorant of what
+`ChannelLabel` (or WhatsApp, or SMS) even is - it only knows "a resolver
+is registered for this key, so ask it for the label instead of using
+the static one," the same design already used for
+`$customEnrollmentCheckers` above (see that property's own doc comment
+for why a `[ClassName::class, 'staticMethodName']` pair is recommended
+over a Closure, and why this package deliberately never reaches into a
+specific sibling package's own classes by name).
+
 ## Adding your own custom MFA method
 
 Everything in this package is built around method *keys* you define

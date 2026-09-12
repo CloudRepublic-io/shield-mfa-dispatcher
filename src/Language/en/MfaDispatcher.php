@@ -22,7 +22,6 @@ return [
     'methodLabel_email'    => 'Email code',
     'methodLabel_whatsapp' => 'WhatsApp code',
     'methodLabel_totp'     => 'Authenticator app',
-    'methodLabel_passkey'  => 'Passkey',
 
     // TOTP self-service enrollment
     'totpNotInstalled' => 'The authenticator app option isn\'t available on this install.',

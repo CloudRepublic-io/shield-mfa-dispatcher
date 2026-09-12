@@ -17,7 +17,7 @@
     <div class="alert alert-info">
         <?= str_replace(
             '{method}',
-            '<strong>' . esc(lang('MfaDispatcher.methodLabel_' . $requiredMethod) ?: ucfirst($requiredMethod)) . '</strong>',
+            '<strong>' . esc($methodLabels[$requiredMethod] ?? ucfirst($requiredMethod)) . '</strong>',
             lang('MfaDispatcher.requiredMethodBanner')
         ) ?>
     </div>
@@ -28,7 +28,7 @@
         <?php $overriddenByRequirement = $requiredMethod !== null && $key !== $requiredMethod; ?>
         <div class="list-group-item d-flex justify-content-between align-items-center<?= $overriddenByRequirement ? ' opacity-50' : '' ?>">
             <div>
-                <strong><?= esc(lang('MfaDispatcher.methodLabel_' . $key) ?: ucfirst($key)) ?></strong>
+                <strong><?= esc($methodLabels[$key] ?? ucfirst($key)) ?></strong>
                 <?php if ($requiredMethod === null && $key === $current) : ?>
                     <span class="badge bg-primary ms-2">Active</span>
                 <?php endif ?>
@@ -43,7 +43,7 @@
                     <div class="text-muted small"><?= lang('MfaDispatcher.whatsappNeedsSetup') ?></div>
                 <?php endif ?>
                 <?php if ($overriddenByRequirement) : ?>
-                    <div class="text-muted small"><?= str_replace('{method}', esc(lang('MfaDispatcher.methodLabel_' . $requiredMethod) ?: ucfirst($requiredMethod)), lang('MfaDispatcher.requiredMethodDisabledNote')) ?></div>
+                    <div class="text-muted small"><?= str_replace('{method}', esc($methodLabels[$requiredMethod] ?? ucfirst($requiredMethod)), lang('MfaDispatcher.requiredMethodDisabledNote')) ?></div>
                 <?php endif ?>
                 <?php if ($requiredMethod !== null && $key === $requiredMethod && $key !== $current) : ?>
                     <div class="text-muted small"><?= lang('MfaDispatcher.requiredMethodAlreadyInEffectNote') ?></div>

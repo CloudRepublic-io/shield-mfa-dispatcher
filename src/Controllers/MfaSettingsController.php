@@ -88,6 +88,7 @@ class MfaSettingsController extends Controller
 
         return view($this->config->views['mfa_settings_index'], [
             'methods'           => $methods,
+            'methodLabels'      => $this->resolveMethodLabels($methods),
             'current'           => $this->preference->get($user) ?? $this->config->defaultMethod,
             'requiredMethod'    => $requiredMethod,
             'totpAvailable'     => $this->totpLibraryAvailable(),
@@ -95,6 +96,35 @@ class MfaSettingsController extends Controller
             'whatsappAvailable' => $this->whatsappLibraryAvailable(),
             'whatsappVerified'  => $this->whatsappLibraryAvailable() && $this->whatsappStore()->hasVerifiedPhoneNumber($user),
         ]);
+    }
+
+    /**
+     * One display label per method key, for the view to use instead of
+     * calling lang('MfaDispatcher.methodLabel_' . $key) itself -
+     * consults Config\MfaDispatcher::$methodLabelResolvers first (see
+     * that property's own doc comment for why this exists), falling
+     * back to the same static lang() string exactly as before that
+     * property existed for any key without a registered resolver.
+     *
+     * @param array<string, string> $methods
+     *
+     * @return array<string, string>
+     */
+    private function resolveMethodLabels(array $methods): array
+    {
+        $labels = [];
+
+        foreach (array_keys($methods) as $key) {
+            if (isset($this->config->methodLabelResolvers[$key])) {
+                $labels[$key] = (string) ($this->config->methodLabelResolvers[$key])();
+
+                continue;
+            }
+
+            $labels[$key] = lang('MfaDispatcher.methodLabel_' . $key) ?: ucfirst($key);
+        }
+
+        return $labels;
     }
 
     public function choose(): RedirectResponse

@@ -15,6 +15,7 @@ use MfaDispatcher\Controllers\MfaSettingsController;
 use MfaDispatcher\Libraries\MfaPreference;
 use Tests\MfaDispatcher\Support\FakeAction;
 use Tests\MfaDispatcher\Support\FakeActionTwo;
+use Tests\MfaDispatcher\Support\FakeMethodLabelResolver;
 
 /**
  * Tests MfaSettingsController by calling its methods directly, via
@@ -270,5 +271,78 @@ final class MfaSettingsControllerTest extends CIUnitTestCase
         $this->assertNotFalse($positionOfFake2);
         $this->assertNotFalse($positionOfFake);
         $this->assertLessThan($positionOfFake, $positionOfFake2);
+    }
+
+    // -------------------------------------------------------------------
+    // Config\MfaDispatcher::$methodLabelResolvers - lets a method's own
+    // label reflect something that can change at runtime (e.g.
+    // shield-whatsapp-mfa's WhatsApp/SMS channel toggle), without this
+    // package needing to know anything about what that method actually
+    // is. See that config property's own doc comment for the full
+    // account.
+    // -------------------------------------------------------------------
+
+    protected function tearDown(): void
+    {
+        parent::tearDown();
+
+        FakeMethodLabelResolver::reset();
+        config('MfaDispatcher')->methodLabelResolvers = [];
+    }
+
+    public function testARegisteredResolverIsUsedInsteadOfTheStaticLabel(): void
+    {
+        $user = $this->makeUser();
+        $this->actingAs($user);
+
+        config('MfaDispatcher')->methodLabelResolvers = [
+            'fake' => [FakeMethodLabelResolver::class, 'current'],
+        ];
+
+        $body = $this->makeController()->index();
+
+        $this->assertStringContainsString('Fake Dynamic Label', $body);
+    }
+
+    /**
+     * THE regression test for the actual point of this feature: the
+     * resolver's OWN return value at render time is used, not whatever
+     * it happened to return earlier - confirming this genuinely
+     * reflects something that can change at runtime, the way
+     * shield-whatsapp-mfa's own $channel toggle does.
+     */
+    public function testTheResolversCurrentValueIsUsedAtRenderTime(): void
+    {
+        $user = $this->makeUser();
+        $this->actingAs($user);
+
+        config('MfaDispatcher')->methodLabelResolvers = [
+            'fake' => [FakeMethodLabelResolver::class, 'current'],
+        ];
+
+        FakeMethodLabelResolver::$label = 'Updated Label';
+
+        $body = $this->makeController()->index();
+
+        $this->assertStringContainsString('Updated Label', $body);
+        $this->assertStringNotContainsString('Fake Dynamic Label', $body);
+    }
+
+    public function testAMethodWithNoRegisteredResolverStillUsesTheStaticLabel(): void
+    {
+        $user = $this->makeUser();
+        $this->actingAs($user);
+
+        config('MfaDispatcher')->methodLabelResolvers = [
+            'fake' => [FakeMethodLabelResolver::class, 'current'],
+        ];
+
+        $body = $this->makeController()->index();
+
+        // 'fake2' has no registered resolver - still falls back to the
+        // static ucfirst($key) label exactly as before this feature
+        // existed (no lang() entry exists for 'fake2' in this test
+        // environment).
+        $this->assertStringContainsString('Fake2', $body);
     }
 }

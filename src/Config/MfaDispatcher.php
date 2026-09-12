@@ -202,6 +202,55 @@ class MfaDispatcher extends BaseConfig
         // 'yubikey' => [\App\Libraries\YubikeyIdentityStore::class, 'checkEnrollment'],
     ];
 
+    /**
+     * OPTIONAL - lets a method's own display label on
+     * MfaSettingsController's settings page reflect something that can
+     * change at runtime, rather than always using the static
+     * lang('MfaDispatcher.methodLabel_' . $key) string.
+     *
+     * WHY THIS EXISTS: shield-whatsapp-mfa can deliver its one 'whatsapp'
+     * method via either WhatsApp or plain SMS
+     * (Config\WhatsAppMfa::$channel), and every one of that package's OWN
+     * views/messages already reflect whichever is currently configured
+     * (via WhatsAppMfa\Libraries\ChannelLabel). Without this property,
+     * this package's own settings page would be the one place still
+     * hardcoded to say "WhatsApp code" regardless - a real,
+     * user-visible inconsistency the moment $channel is switched to
+     * 'sms'.
+     *
+     * Deliberately NOT hardcoded in this package itself: this package
+     * has no idea WhatsApp or SMS even exist, by design (see "Adding
+     * your own custom MFA method" above) - reaching into a specific
+     * sibling package's own class by name here would break that
+     * separation for every OTHER method too, including a developer's
+     * own custom one. This property keeps the dispatcher completely
+     * ignorant of what any given method actually is; it only knows
+     * "a resolver is registered for this key, so ask it for the label
+     * instead of using the static one."
+     *
+     * method key => any PHP callable accepting no arguments and
+     * returning a string - the method's own current display label. A
+     * [ClassName::class, 'staticMethodName'] pair is recommended over a
+     * Closure for the same reason given in $customEnrollmentCheckers's
+     * own doc comment above (a Closure cannot be this property's own
+     * default value at all - a real report confirmed this the hard
+     * way). For shield-whatsapp-mfa specifically:
+     *
+     *   public array $methodLabelResolvers = [
+     *       'whatsapp' => [\WhatsAppMfa\Libraries\ChannelLabel::class, 'current'],
+     *   ];
+     *
+     * Only consulted for a method key that has an entry here - any
+     * method without one keeps using the static
+     * lang('MfaDispatcher.methodLabel_' . $key) string exactly as
+     * before this property existed.
+     *
+     * @var array<string, callable(): string>
+     */
+    public array $methodLabelResolvers = [
+        // 'whatsapp' => [\WhatsAppMfa\Libraries\ChannelLabel::class, 'current'],
+    ];
+
     // -- Step-up auth for sensitive pages (RequireFreshMfa filter) ----------
 
     /**
