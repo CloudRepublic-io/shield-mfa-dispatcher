@@ -11,9 +11,9 @@
         "2fa"
     ],
     "require": {
-        "php": "^8.1",
-        "codeigniter4/framework": "^4.3",
-        "codeigniter4/shield": "^1.0"
+        "php": "^8.2",
+        "codeigniter4/framework": "^4.7",
+        "codeigniter4/shield": "^1.4"
     },
     "suggest": {
         "cloudrepublic/shield-whatsapp-mfa": "Adds a 'whatsapp' method option, plus self-service phone verification on the settings page built into this package.",
