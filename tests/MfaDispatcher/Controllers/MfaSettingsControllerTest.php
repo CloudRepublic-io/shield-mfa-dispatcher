@@ -15,6 +15,7 @@ use MfaDispatcher\Controllers\MfaSettingsController;
 use MfaDispatcher\Libraries\MfaPreference;
 use Tests\MfaDispatcher\Support\FakeAction;
 use Tests\MfaDispatcher\Support\FakeActionTwo;
+use Tests\MfaDispatcher\Support\FakeCustomMethodStore;
 use Tests\MfaDispatcher\Support\FakeMethodLabelResolver;
 
 /**
@@ -287,6 +288,7 @@ final class MfaSettingsControllerTest extends CIUnitTestCase
         parent::tearDown();
 
         FakeMethodLabelResolver::reset();
+        FakeCustomMethodStore::reset();
         config('MfaDispatcher')->methodLabelResolvers = [];
     }
 
@@ -379,5 +381,108 @@ final class MfaSettingsControllerTest extends CIUnitTestCase
         $this->assertStringContainsString('Remove SMS number', $body);
         $this->assertStringNotContainsString('Remove WhatsApp number', $body);
         $this->assertStringContainsString('Remove your verified SMS number?', $body);
+    }
+
+    // -------------------------------------------------------------------
+    // choose()'s generic enrollment check for custom methods - see
+    // Config\MfaDispatcher::$customEnrollmentRoutes's own doc comment
+    // for the full account of the real bug this fixes: choosing a
+    // custom method the user had never enrolled in previously set it
+    // as their stored preference anyway, with nothing checking
+    // $customEnrollmentCheckers first - silently bypassing MFA
+    // entirely at their next login, since Shield would have nothing
+    // pending to find for a method with no matching identity at all.
+    // -------------------------------------------------------------------
+
+    public function testChooseRefusesACustomMethodTheUserHasNotEnrolledIn(): void
+    {
+        $user = $this->makeUser();
+        $this->actingAs($user);
+
+        $config          = config('MfaDispatcher');
+        $config->methods = [
+            'fake'       => FakeAction::class,
+            'secretword' => FakeActionTwo::class,
+        ];
+        $config->customEnrollmentCheckers = [
+            'secretword' => [FakeCustomMethodStore::class, 'checkEnrollment'],
+        ];
+        // Deliberately NOT marking this user as enrolled in
+        // FakeCustomMethodStore - this is the "never set it up" case.
+
+        $preference = new MfaPreference();
+
+        $this->makeController(['method' => 'secretword'])->choose();
+
+        $this->assertNull($preference->get($user));
+    }
+
+    public function testChooseRedirectsToTheConfiguredEnrollmentRouteWhenNotEnrolled(): void
+    {
+        $user = $this->makeUser();
+        $this->actingAs($user);
+
+        $config          = config('MfaDispatcher');
+        $config->methods = [
+            'fake'       => FakeAction::class,
+            'secretword' => FakeActionTwo::class,
+        ];
+        $config->customEnrollmentCheckers = [
+            'secretword' => [FakeCustomMethodStore::class, 'checkEnrollment'],
+        ];
+        $config->customEnrollmentRoutes = [
+            'secretword' => 'login', // any real, existing route name for this test's purposes
+        ];
+
+        $response = $this->makeController(['method' => 'secretword'])->choose();
+
+        $this->assertStringContainsString('login', $response->getHeaderLine('Location'));
+    }
+
+    public function testChooseAllowsACustomMethodOnceEnrolled(): void
+    {
+        $user = $this->makeUser();
+        $this->actingAs($user);
+
+        $config          = config('MfaDispatcher');
+        $config->methods = [
+            'fake'       => FakeAction::class,
+            'secretword' => FakeActionTwo::class,
+        ];
+        $config->customEnrollmentCheckers = [
+            'secretword' => [FakeCustomMethodStore::class, 'checkEnrollment'],
+        ];
+        FakeCustomMethodStore::$enrolledUserIds[$user->id] = true;
+
+        $preference = new MfaPreference();
+
+        $this->makeController(['method' => 'secretword'])->choose();
+
+        $this->assertSame('secretword', $preference->get($user));
+    }
+
+    /**
+     * THE regression test confirming 'email' is deliberately exempt
+     * from this new check - MethodEnrollmentChecker::isEnrolled()
+     * already treats it as always enrolled, so this must keep working
+     * exactly as before, with no customEnrollmentCheckers entry needed
+     * for it at all.
+     */
+    public function testChooseStillAllowsEmailWithNoCustomEnrollmentCheckerRegistered(): void
+    {
+        $user = $this->makeUser();
+        $this->actingAs($user);
+
+        $config          = config('MfaDispatcher');
+        $config->methods = [
+            'email' => \CodeIgniter\Shield\Authentication\Actions\Email2FA::class,
+            'fake'  => FakeAction::class,
+        ];
+
+        $preference = new MfaPreference();
+
+        $this->makeController(['method' => 'email'])->choose();
+
+        $this->assertSame('email', $preference->get($user));
     }
 }

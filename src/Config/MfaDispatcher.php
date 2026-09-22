@@ -251,6 +251,47 @@ class MfaDispatcher extends BaseConfig
         // 'whatsapp' => [\WhatsAppMfa\Libraries\ChannelLabel::class, 'current'],
     ];
 
+    /**
+     * REQUIRED if you want MfaSettingsController::choose() to actually
+     * refuse a custom method until the user has set it up - without an
+     * entry here, choosing a custom method they've never enrolled in
+     * silently sets it as their stored preference anyway.
+     *
+     * CONFIRMED, REAL GAP THIS FIXES: choose() has always had hardcoded
+     * enrollment checks for exactly two method keys - 'totp' and
+     * 'whatsapp' - redirecting to each one's own dedicated enrollment
+     * route if the user hasn't set it up yet. Any OTHER method key,
+     * including a developer's own custom one, had no equivalent check
+     * at all - choosing it just set the preference directly, with
+     * nothing checking $customEnrollmentCheckers first. The real,
+     * user-facing consequence: at the user's next login,
+     * MfaDispatcher::resolveAction() (the plain, non-required
+     * preference path, not the $requiredMethodsForGroups one - see
+     * that resolution logic above, which already has its own,
+     * separate enrollment check) resolves straight to the login
+     * action for a method the user never actually set up. With no
+     * matching identity for Shield to find anything pending for, MFA
+     * can end up silently skipped entirely - not an error, not a
+     * forced-setup prompt, just bypassed.
+     *
+     * method key => the named route to redirect to instead of setting
+     * the preference, when MethodEnrollmentChecker::isEnrolled()
+     * reports the user hasn't set this method up yet - normally your
+     * own custom method's own registration/settings-page route. Only
+     * consulted for a method key not already handled by one of the
+     * hardcoded 'totp'/'whatsapp' checks above. A method with no entry
+     * here, and not yet enrolled, is refused outright (an error
+     * message, no redirect) rather than silently allowed through -
+     * refusing by default is the safer failure mode, since the
+     * alternative is the silent MFA bypass this property exists to
+     * prevent.
+     *
+     * @var array<string, string>
+     */
+    public array $customEnrollmentRoutes = [
+        // 'secretword' => 'secretword-enroll',
+    ];
+
     // -- Step-up auth for sensitive pages (RequireFreshMfa filter) ----------
 
     /**

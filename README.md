@@ -430,6 +430,50 @@ isn't installed, calling a resolver that likely references a class
 from that same absent package would risk a class-not-found error
 rather than a graceful fallback.
 
+### Choosing an unenrolled custom method used to silently bypass MFA entirely - fixed
+
+**Fixed in the current version, following a real report.** `choose()`
+has always had hardcoded enrollment checks for exactly two method
+keys - `'totp'` and `'whatsapp'` - redirecting to each one's own
+dedicated enrollment route if the user hadn't set it up yet. Any
+*other* method key, including a developer's own custom one, had no
+equivalent check at all: choosing it simply set it as the user's
+stored preference directly, with nothing consulting
+`$customEnrollmentCheckers` first.
+
+**The real, confirmed consequence, not just a theoretical gap:** at
+that user's next login, `MfaDispatcher::resolveAction()`'s plain,
+non-required preference path (not the `$requiredMethodsForGroups` one
+above, which already has its own, separate enrollment check via
+`resolveRequiredMethod()`) resolves straight to that method's login
+action - for a method the user never actually enrolled in. With no
+matching identity for Shield to find anything pending for, MFA can end
+up silently skipped entirely for that login - not an error, not a
+forced-setup prompt, just bypassed.
+
+**Fixed:** `choose()` now runs a generic check, via the same
+`MethodEnrollmentChecker` already used elsewhere in this package, for
+any method key not already covered by the hardcoded `'totp'`/`'whatsapp'`
+checks (`'email'` is deliberately exempt too - `isEnrolled()` already
+treats it as always enrolled, so checking it would be redundant, not
+wrong, but was skipped to avoid an unnecessary instantiation for the
+single most common choice). A new config property,
+`Config\MfaDispatcher::$customEnrollmentRoutes`, tells `choose()` which
+route to redirect to instead, for a method the user hasn't set up yet:
+
+```php
+public array $customEnrollmentRoutes = [
+    'secretword' => 'secretword-enroll',
+];
+```
+
+**If a method has no entry here and the user hasn't enrolled, `choose()`
+now refuses outright** (an error message, the preference left
+unchanged) rather than silently letting it through - refusing is the
+safer failure mode, since the alternative is exactly the silent MFA
+bypass this fix exists to prevent. See "Adding your own custom MFA
+method" below for where this fits into wiring up a method end to end.
+
 ## Adding your own custom MFA method
 
 Everything in this package is built around method *keys* you define
@@ -476,13 +520,16 @@ package's own source.
    ];
    ```
 
-4. **If you're using `$requiredMethodsForGroups` for this method,
-   register a custom enrollment checker too** - this step is easy to
-   miss, and skipping it produces a real, confirmed failure mode: every
+4. **Register a custom enrollment checker** - needed for two reasons,
+   not just one: if you're using `$requiredMethodsForGroups` for this
+   method (skipping it produces a real, confirmed failure mode: every
    affected user gets routed into forced setup on *every single login,
    forever*, even immediately after they've genuinely completed it,
    because nothing tells `MethodEnrollmentChecker` how to recognize
-   that they already have:
+   that they already have), *and* if you're letting users choose this
+   method themselves via the settings page (skipping it there produces
+   a different, also real, confirmed bug - see "Choosing an unenrolled
+   custom method used to silently bypass MFA entirely" above):
 
    ```php
    public array $customEnrollmentCheckers = [
@@ -520,13 +567,34 @@ package's own source.
    question, working safely and directly as this array's own default
    value.
 
-5. **Optionally, add step-up support** - your own filter implementing
+5. **If users can choose this method themselves via the settings page
+   (not just via `$requiredMethodsForGroups`), also register where to
+   send them if they haven't set it up yet** - your own method's
+   registration/settings page, most commonly:
+
+   ```php
+   public array $customEnrollmentRoutes = [
+       'yubikey' => 'yubikey-enroll',
+   ];
+   ```
+
+   Without an entry here, a user choosing this method before they've
+   enrolled is refused outright (a plain error message, their
+   preference left unchanged) rather than being sent anywhere - a safe
+   default, but a worse experience than actually routing them to set
+   it up. If this method is *only* ever used via
+   `$requiredMethodsForGroups`, and never offered as a user's own
+   choice, this step isn't needed at all - `resolveRequiredMethod()`'s
+   own forced-setup flow (via `$activatorClasses`, step 3 above)
+   already handles that case independently.
+
+6. **Optionally, add step-up support** - your own filter implementing
    `CodeIgniter\Filters\FilterInterface`, registered in
    `$stepUpFilterClasses` under the same method key, if you want
    `RequireFreshMfa` to be able to challenge for freshness on this
    method too.
 
-None of steps 1-5 require modifying this package's own source at any
+None of steps 1-6 require modifying this package's own source at any
 point - every extension point is a config array your own app populates.
 
 ## Diagnostic logging is gated to development only

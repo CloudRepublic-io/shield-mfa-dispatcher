@@ -8,6 +8,7 @@ use CodeIgniter\Controller;
 use CodeIgniter\HTTP\RedirectResponse;
 use CodeIgniter\Shield\Entities\User;
 use Config\MfaDispatcher as MfaDispatcherConfig;
+use MfaDispatcher\Libraries\MethodEnrollmentChecker;
 use MfaDispatcher\Libraries\MfaMethodResolver;
 use MfaDispatcher\Libraries\MfaPreference;
 
@@ -155,6 +156,33 @@ class MfaSettingsController extends Controller
 
         if ($method === 'whatsapp' && ! ($this->whatsappLibraryAvailable() && $this->whatsappStore()->hasVerifiedPhoneNumber($user))) {
             return redirect()->route('mfa-settings-whatsapp-enroll');
+        }
+
+        // Generic check for any OTHER method key - a developer's own
+        // custom method, most commonly. 'email' is deliberately exempt
+        // too: MethodEnrollmentChecker::isEnrolled() already treats it
+        // as always enrolled (Shield's own built-in Email2FA needs no
+        // setup), so checking it here would just be redundant, not
+        // wrong - excluded purely to avoid an unnecessary
+        // instantiation of MethodEnrollmentChecker on the single most
+        // common choice.
+        if ($method !== 'totp' && $method !== 'whatsapp' && $method !== 'email') {
+            $enrollmentChecker = new MethodEnrollmentChecker();
+
+            if (! $enrollmentChecker->isEnrolled($method, $user)) {
+                $enrollRoute = $this->config->customEnrollmentRoutes[$method] ?? null;
+
+                if ($enrollRoute !== null) {
+                    return redirect()->route($enrollRoute);
+                }
+
+                // No route configured for this method - refuse rather
+                // than silently setting a preference that would bypass
+                // MFA entirely at the user's next login (see
+                // $customEnrollmentRoutes's own doc comment for the
+                // full account of the real bug this prevents).
+                return redirect()->route('mfa-settings')->with('error', lang('MfaDispatcher.cannotChooseUnenrolledMethod'));
+            }
         }
 
         $this->preference->set($user, $method);
