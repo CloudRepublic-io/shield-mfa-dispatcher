@@ -21,6 +21,14 @@ It's designed to sit alongside (not replace) the
 series, plus Shield's own built-in `Email2FA` - but works with any
 `ActionInterface` implementation, including ones you write yourself.
 
+## Requirements
+
+- PHP 8.2 or later
+- CodeIgniter 4.6 or later
+- CodeIgniter Shield 1.4 or later
+
+Tested on CodeIgniter 4.6 and 4.7, up to PHP 8.5.
+
 ## If you get "MfaDispatcher: cannot get the pending login user"
 
 Fixed in the current version - update if you're on an older copy.
@@ -35,13 +43,47 @@ method - not something that depended on which user was logging in, or
 what they'd already set up. `TotpMfa`/`PasskeyMfa` never hit this
 because their own `getType()` implementations don't need to know who
 the user is for the common case; `MfaDispatcher`'s whole job requires
-it. `getType()` now uses Shield's own documented `auth()->user()`
-instead - see that method's own doc comment for the full explanation,
-including an honest note that this specific fix (unlike most others in
-this series) hasn't been confirmed against Shield's actual source the
-same rigorous way; if you hit this error again after updating, that's
-the next thing worth checking rather than assuming is already ruled
-out.
+it. `getType()` now works out the user from Shield's own session state -
+see the next section, which is where that fix ended up.
+
+## Shield's `login` event fired before MFA was passed - fixed
+
+With `MfaDispatcher` as the login action, Shield used to treat each
+login as complete for a moment before the MFA step. MFA was still
+enforced, but Shield's `login` event fired twice: once when the password
+was accepted, before MFA, and again when MFA succeeded. Anything
+listening to `login` (an audit log, a "new sign-in" email, a last-login
+timestamp) ran for someone who had only passed the password step, even
+if they then failed MFA.
+
+The cause: during the password check (`Session::attempt()`), Shield
+calls the login action's `getType()` to find out whether an MFA step is
+waiting. The dispatcher needs to know who is logging in to answer, and
+it asked `auth()->user()`, which is `null` until someone is logged in.
+So it answered "nothing waiting", and Shield ran `completeLogin()`. Only
+`LoginController`'s follow-up `hasAction()` call put the session back
+into "waiting for MFA".
+
+The fix: Shield calls `createIdentity($user)` on the dispatcher just
+before that check, and reuses the same dispatcher object for both calls.
+So `createIdentity()` now remembers the user, and `getType()` uses it
+when nobody is logged in yet. `getType()` also falls back to Shield's
+pending user, so it answers correctly on the requests after the password
+step too. Shield now sees the MFA step during the password check itself,
+leaves the user waiting for MFA, and fires `login` once, after MFA.
+
+This was verified against CodeIgniter 4.7.4 and Shield 1.4 with the full
+test suite, which passes, and with these login scenarios:
+
+| Scenario | `login` events after password | Waiting for MFA | Total `login` events |
+|---|---|---|---|
+| MFA required (test method) | 0 (was 1) | yes | 1 (was 2) |
+| MFA required (Shield's own `Email2FA`) | 0 (was 1) | yes | 1 (was 2) |
+| Required method not set up, sent to its activator | 0 (was 1) | yes | 1 (was 2) |
+| MFA not required for this user | 1 | no, logs straight in | 1 |
+
+The regression tests are the "login event" tests at the end of
+`MfaDispatcherTest`. They fail against the old code.
 
 ## If you get "MfaDispatcher::handle(): Return value must be of type Response, string returned"
 
@@ -977,22 +1019,13 @@ tests/MfaDispatcher/
   in the database after `createIdentity()`. The fake created none, so
   `getPendingUser()` returned `null` and `show()` couldn't find the user.
   It now stores a real identity, as a real action would.
-- **`show()` test had no pending user.** Shield's `LoginController`
-  calls `hasAction()` straight after `attempt()`, and with
-  `MfaDispatcher` as the login action it's that second call that puts
-  the user into the "pending MFA" state. Inside `attempt()`, the
-  dispatcher's `getType()` can't see the user yet (`auth()->user()` is
-  `null` until login), so Shield doesn't find the pending identity there.
-  The test now makes the same `hasAction()` call. This was reproduced
-  against CodeIgniter 4.7.4 and current Shield, which also showed a side
-  effect in real logins: because Shield finds nothing pending during
-  `attempt()`, it runs `completeLogin()` there. Shield's `login` event
-  therefore fires once when the password is accepted, before the MFA
-  step, and again when MFA completes. MFA is still enforced: the
-  following `hasAction()` puts the session back into the pending state
-  before any page is served. However, any `login` event listener (audit
-  log, "new sign-in" email, last-login time) runs for someone who has
-  only passed the password step.
+- **`show()` test had no pending user.** Shield only treats a login
+  as waiting for MFA if it finds the method's identity in the database,
+  and the test's fake action created none. That's fixed (see
+  `FakeAction` above). The test also now calls `hasAction()` after
+  `attempt()`, as Shield's own `LoginController` does. Investigating
+  this turned up the early `login` event described in "Shield's `login`
+  event fired before MFA was passed - fixed" above.
 - **Missing-activator errors raised at login, not later.** Shield calls
   the login action's `createIdentity()` inside `attempt()`, and that's
   where the dispatcher first resolves a required method. The "no

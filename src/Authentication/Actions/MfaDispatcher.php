@@ -141,59 +141,58 @@ class MfaDispatcher implements ActionInterface
     }
 
     /**
-     * {@inheritDoc}
-     *
-     * Newer Shield versions added getType() and createIdentity() to
-     * ActionInterface. Since this class is itself just a delegator with
-     * no fixed identity type of its own, both simply forward to
-     * whichever real Action is resolved for the current pending user -
-     * falling back to an empty/no-op result if MFA can be skipped
-     * entirely (see resolveAction()).
+     * The user Shield most recently handed to createIdentity() - see
+     * getType() for why this is kept.
      */
+    private ?User $userBeingAuthenticated = null;
+
     /**
-     * CONFIRMED BUG, FIXED HERE: this used to call
-     * $this->resolveAction($this->getPendingUser()), which threw
-     * "cannot get the pending login user" for every real login
-     * attempt. Root cause, confirmed against Shield's own attempt()/
-     * setAuthAction() source (see this class's own doc comment and
-     * shield-totp-mfa's README for how that source was obtained):
-     * Shield calls $action->getType() from INSIDE setAuthAction(),
-     * which is itself the method that decides whether to set
-     * $userState to STATE_PENDING - getType() is called BEFORE that
-     * decision is made, not after. getPendingUser() only ever returns
-     * non-null once STATE_PENDING is already set, so it's
-     * unconditionally null at the exact moment Shield calls this
-     * method - a genuine chicken-and-egg problem, not a bug specific
-     * to any particular login attempt.
+     * Returns the identity type of whichever method applies to the user
+     * being authenticated.
      *
-     * TotpMfa/PasskeyMfa never hit this because their getType()
-     * implementations return a static string that doesn't need to
-     * know who the user is at all for the common case - only
-     * MfaDispatcher genuinely needs a user reference here, since its
-     * whole job is picking a *different* type per user.
+     * Shield calls this from inside its private setAuthAction(), which is
+     * what decides whether a login must wait for an MFA step: it looks for
+     * an identity of this type in the database. The dispatcher needs to
+     * know WHO is logging in to answer, because each user can have a
+     * different method.
      *
-     * auth()->user() is Shield's own documented way to get "the
-     * current User entity" - used here instead, since it's the
-     * best-supported alternative found. This has NOT been confirmed
-     * against Shield's actual source the way the rest of this
-     * project's fixes have been - if you hit the same error again
-     * after updating to this version, that's the next thing to
-     * verify, not something to assume is already ruled out.
+     * During the password check (Session::attempt()) nobody is logged in
+     * yet, so auth()->user() is null. This used to return '' at that
+     * point. Shield then found nothing pending, ran completeLogin() -
+     * firing its 'login' event - and only put the session back into the
+     * "waiting for MFA" state on LoginController's follow-up hasAction()
+     * call. MFA was still enforced, but every 'login' listener ran for
+     * someone who had only passed the password step, and ran again after
+     * MFA.
+     *
+     * The fix: inside attempt(), Shield calls createIdentity($user) on
+     * this action immediately before the setAuthAction() check that
+     * matters, and reuses the same instance for both calls (Factories
+     * returns a shared instance per action class). So createIdentity()
+     * remembers the user, and this method falls back to it when nobody is
+     * logged in yet. Shield then sees the pending MFA step during
+     * attempt() itself and never calls completeLogin() early. Verified
+     * against CodeIgniter 4.7.4 + Shield 1.4 - see MfaDispatcherTest's
+     * "login event" regression tests.
+     *
+     * Otherwise the user comes from Shield itself: the logged-in user,
+     * or the user whose login is waiting for MFA (so getType() answers
+     * correctly on the requests after attempt() too).
      */
     public function getType(): string
     {
-        $user = auth()->user();
+        /** @var Session $authenticator */
+        $authenticator = auth('session')->getAuthenticator();
+
+        $user = $authenticator->getUser()
+            ?? $authenticator->getPendingUser()
+            ?? $this->userBeingAuthenticated;
 
         if ($user === null) {
-            // Genuinely nothing to resolve against - not the bug this
-            // fix addresses, but also not a state Shield should ever
-            // call getType() in at all (there must be SOME user being
-            // processed for setAuthAction() to be running in the first
-            // place). Returning '' here means "no identity of this
-            // type could possibly match", which is safe: it just means
-            // this specific check doesn't apply, not that MFA gets
-            // silently skipped - setAuthAction() simply moves on to
-            // check the next configured action.
+            // Nobody logged in and nobody passed to createIdentity() yet
+            // (e.g. Shield's first setAuthAction() call, which runs
+            // before createIdentity()). Nothing to resolve against, so no
+            // identity of this action's type can match.
             return '';
         }
 
@@ -204,6 +203,8 @@ class MfaDispatcher implements ActionInterface
 
     public function createIdentity(User $user): string
     {
+        $this->userBeingAuthenticated = $user;
+
         $action = $this->resolveAction($user);
 
         return $action?->createIdentity($user) ?? '';

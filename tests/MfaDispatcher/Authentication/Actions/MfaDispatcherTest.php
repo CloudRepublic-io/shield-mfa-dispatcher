@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\MfaDispatcher\Authentication\Actions;
 
 use CodeIgniter\Config\Services;
+use CodeIgniter\Events\Events;
 use CodeIgniter\Shield\Authentication\Authenticators\Session;
 use CodeIgniter\Shield\Entities\User;
 use CodeIgniter\Shield\Models\UserModel;
@@ -177,14 +178,7 @@ final class MfaDispatcherTest extends CIUnitTestCase
 
         // Mirrors Shield's own LoginController, which calls hasAction()
         // straight after attempt() and only then redirects to
-        // auth/a/show. With MfaDispatcher as the login action, that
-        // hasAction() call is what actually puts the user into the
-        // "pending MFA" state: inside attempt() itself, getType() can't
-        // see the user yet (auth()->user() is null until login), so
-        // Shield doesn't find the pending identity until this second
-        // check. Without it, show() had no pending user to work with.
-        // Reproduced against CodeIgniter 4.7.4 + current Shield - see
-        // this package's README for what that means for real logins.
+        // auth/a/show.
         $this->assertTrue(auth('session')->getAuthenticator()->hasAction());
 
         $body = (new MfaDispatcher())->show();
@@ -430,5 +424,96 @@ final class MfaDispatcherTest extends CIUnitTestCase
         $this->attemptLogin($user);
 
         (new MfaDispatcher())->getType();
+    }
+
+    // -------------------------------------------------------------------
+    // Shield's 'login' event must not fire before MFA is passed.
+    //
+    // Regression coverage for a confirmed issue: getType() couldn't see
+    // the user during attempt(), so Shield found nothing pending, ran
+    // completeLogin() (firing 'login') and only went back to "waiting for
+    // MFA" on LoginController's follow-up hasAction() call. See getType()'s
+    // doc comment and the README.
+    // -------------------------------------------------------------------
+
+    /**
+     * Runs $callback while counting Shield 'login' events, and returns
+     * the count.
+     */
+    private function countLoginEvents(callable $callback): int
+    {
+        $count    = 0;
+        $listener = static function () use (&$count): void {
+            $count++;
+        };
+
+        Events::on('login', $listener);
+
+        try {
+            $callback();
+        } finally {
+            Events::removeListener('login', $listener);
+        }
+
+        return $count;
+    }
+
+    public function testAttemptLeavesTheUserWaitingForMfaWithoutFiringLogin(): void
+    {
+        $user = $this->makeUser();
+
+        $events = $this->countLoginEvents(fn () => $this->attemptLogin($user));
+
+        /** @var Session $authenticator */
+        $authenticator = auth('session')->getAuthenticator();
+
+        $this->assertSame(0, $events, "Shield's 'login' event fired before MFA was passed.");
+        $this->assertFalse($authenticator->loggedIn());
+        $this->assertSame($user->id, $authenticator->getPendingUser()?->id);
+    }
+
+    public function testLoginFiresOnceOnlyAfterMfaCompletes(): void
+    {
+        $user = $this->makeUser();
+
+        $events = $this->countLoginEvents(function () use ($user): void {
+            $this->attemptLogin($user);
+
+            /** @var Session $authenticator */
+            $authenticator = auth('session')->getAuthenticator();
+            $this->assertTrue($authenticator->hasAction());
+
+            // What the delegated action's verify() does on a correct code.
+            $authenticator->completeLogin($user);
+        });
+
+        $this->assertSame(1, $events);
+    }
+
+    public function testAUserWithNoMfaRequiredStillLogsStraightIn(): void
+    {
+        config('MfaDispatcher')->required = false;
+        service('settings')->set('MfaDispatcher.enabledForGroups', ['admin']);
+
+        $user = $this->makeUser(); // not in 'admin', so MFA doesn't apply
+
+        $events = $this->countLoginEvents(fn () => $this->attemptLogin($user));
+
+        /** @var Session $authenticator */
+        $authenticator = auth('session')->getAuthenticator();
+
+        $this->assertSame(1, $events);
+        $this->assertTrue($authenticator->loggedIn());
+        $this->assertFalse($authenticator->hasAction());
+    }
+
+    public function testGetTypeResolvesForTheUserWaitingForMfa(): void
+    {
+        $user = $this->makeUser();
+        $this->attemptLogin($user);
+
+        // A fresh instance, as on the next request: no remembered user,
+        // nobody logged in - the pending user is what it must use.
+        $this->assertSame('fake_action_type', (new MfaDispatcher())->getType());
     }
 }
