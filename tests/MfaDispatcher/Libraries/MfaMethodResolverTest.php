@@ -13,6 +13,13 @@ use MfaDispatcher\Libraries\MfaPreference;
 use Tests\MfaDispatcher\Support\FakeAction;
 use Tests\MfaDispatcher\Support\FakeActionTwo;
 
+// Loaded explicitly rather than autoloaded: a typical CodeIgniter app's
+// composer.json only maps Tests\Support\ (to tests/_support), so
+// Tests\MfaDispatcher\Support\* isn't autoloadable, and PHPUnit only
+// loads *Test.php files itself.
+require_once __DIR__ . '/../Support/FakeAction.php';
+require_once __DIR__ . '/../Support/FakeActionTwo.php';
+
 /**
  * Tests MfaMethodResolver directly, in isolation from MfaDispatcher
  * (the login Action) and RequireFreshMfa (the step-up filter) - both
@@ -42,6 +49,15 @@ final class MfaMethodResolverTest extends CIUnitTestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        // The Settings library's DatabaseHandler caches every value it has
+        // read in memory on the shared 'settings' service. $refresh resets
+        // the database between tests, but not that cache - and user ids
+        // restart at 1 after each refresh, so a preference saved for
+        // "user:1" in one test was still returned for a brand-new user:1
+        // in the next (seen as 'fake2' leaking into tests that set nothing).
+        // A fresh service per test reads the freshly-reset database.
+        \CodeIgniter\Config\Services::resetSingle('settings');
 
         $config                = config('MfaDispatcher');
         $config->methods       = [

@@ -40,6 +40,20 @@ final class MfaPreferenceTest extends CIUnitTestCase
     // that this class's new storage mechanism depends on.
     protected $namespace = null;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // The Settings library's DatabaseHandler caches every value it has
+        // read in memory on the shared 'settings' service. $refresh resets
+        // the database between tests, but not that cache - and user ids
+        // restart at 1 after each refresh, so a preference saved for
+        // "user:1" in one test was still returned for a brand-new user:1
+        // in the next (seen as 'fake2' leaking into tests that set nothing).
+        // A fresh service per test reads the freshly-reset database.
+        \CodeIgniter\Config\Services::resetSingle('settings');
+    }
+
     private function makeUser(): User
     {
         return fake(UserModel::class, [

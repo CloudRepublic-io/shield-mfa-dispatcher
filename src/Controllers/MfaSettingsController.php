@@ -122,7 +122,7 @@ class MfaSettingsController extends Controller
                 continue;
             }
 
-            $labels[$key] = lang('MfaDispatcher.methodLabel_' . $key) ?: ucfirst($key);
+            $labels[$key] = $this->staticMethodLabel($key);
         }
 
         return $labels;
@@ -296,7 +296,25 @@ class MfaSettingsController extends Controller
             return (string) $resolver();
         }
 
-        return lang('MfaDispatcher.methodLabel_whatsapp') ?: 'WhatsApp';
+        return $this->staticMethodLabel('whatsapp', 'WhatsApp');
+    }
+
+    /**
+     * The label from lang('MfaDispatcher.methodLabel_<key>'), or a
+     * readable fallback when no such language line exists.
+     *
+     * The fallback used to be written as `lang(...) ?: ucfirst($key)`,
+     * which never fired: lang() doesn't return an empty string for a
+     * missing line, it returns the key itself. So a custom method with
+     * no language entry (e.g. 'secretword') was shown on the settings
+     * page as the literal text "MfaDispatcher.methodLabel_secretword".
+     */
+    private function staticMethodLabel(string $key, ?string $fallback = null): string
+    {
+        $langKey = 'MfaDispatcher.methodLabel_' . $key;
+        $label   = lang($langKey);
+
+        return $label === $langKey ? ($fallback ?? ucfirst($key)) : $label;
     }
 
     // -------------------------------------------------------------------

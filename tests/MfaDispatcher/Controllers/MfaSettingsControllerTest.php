@@ -18,6 +18,15 @@ use Tests\MfaDispatcher\Support\FakeActionTwo;
 use Tests\MfaDispatcher\Support\FakeCustomMethodStore;
 use Tests\MfaDispatcher\Support\FakeMethodLabelResolver;
 
+// Loaded explicitly rather than autoloaded: a typical CodeIgniter app's
+// composer.json only maps Tests\Support\ (to tests/_support), so
+// Tests\MfaDispatcher\Support\* isn't autoloadable, and PHPUnit only
+// loads *Test.php files itself.
+require_once __DIR__ . '/../Support/FakeAction.php';
+require_once __DIR__ . '/../Support/FakeActionTwo.php';
+require_once __DIR__ . '/../Support/FakeCustomMethodStore.php';
+require_once __DIR__ . '/../Support/FakeMethodLabelResolver.php';
+
 /**
  * Tests MfaSettingsController by calling its methods directly, via
  * initController() (as CodeIgniter's own Controller lifecycle would),
@@ -57,6 +66,15 @@ final class MfaSettingsControllerTest extends CIUnitTestCase
     {
         parent::setUp();
 
+        // The Settings library's DatabaseHandler caches every value it has
+        // read in memory on the shared 'settings' service. $refresh resets
+        // the database between tests, but not that cache - and user ids
+        // restart at 1 after each refresh, so a preference saved for
+        // "user:1" in one test was still returned for a brand-new user:1
+        // in the next (seen as 'fake2' leaking into tests that set nothing).
+        // A fresh service per test reads the freshly-reset database.
+        \CodeIgniter\Config\Services::resetSingle('settings');
+
         // Defensive: this controller's own views use url_to(), which
         // needs a populated route collection - a call to resetServices()
         // anywhere earlier in the same PHPUnit process (this package's
@@ -74,13 +92,29 @@ final class MfaSettingsControllerTest extends CIUnitTestCase
             'fake2' => FakeActionTwo::class,
         ];
         $config->defaultMethod = 'fake';
+
+        // 'fake' and 'fake2' are custom method keys, and choose() refuses
+        // a custom method the user hasn't enrolled in (the fix for the
+        // "choosing an unenrolled custom method silently skipped MFA"
+        // bug). These two stand in for methods that need no setup, so
+        // they're registered as always enrolled. The tests for that
+        // refusal replace this with their own checker.
+        $config->customEnrollmentCheckers = [
+            'fake'  => [self::class, 'alwaysEnrolled'],
+            'fake2' => [self::class, 'alwaysEnrolled'],
+        ];
+    }
+
+    public static function alwaysEnrolled(User $user): bool
+    {
+        return true;
     }
 
     private function makeUser(): User
     {
         return fake(UserModel::class, [
             'email'    => 'dispatcher-settings-test-' . uniqid() . '@example.com',
-            'username' => 'dispatchersettingstest' . uniqid(),
+            'username' => 'dstest' . uniqid(),
             'password' => 'secret123456',
         ]);
     }
@@ -91,6 +125,11 @@ final class MfaSettingsControllerTest extends CIUnitTestCase
 
         /** @var IncomingRequest $request */
         $request = service('request', null, false);
+        // CodeIgniter 4.7+ reads POST from a shared 'superglobals' snapshot
+        // taken the first time anything touches the request, so the
+        // $_POST assignment above is invisible to it - setGlobal() works
+        // on 4.6 and 4.7 alike.
+        $request->setGlobal('post', $post);
 
         $controller = new MfaSettingsController();
         $controller->initController($request, service('response'), service('logger'));
@@ -380,7 +419,10 @@ final class MfaSettingsControllerTest extends CIUnitTestCase
 
         $this->assertStringContainsString('Remove SMS number', $body);
         $this->assertStringNotContainsString('Remove WhatsApp number', $body);
-        $this->assertStringContainsString('Remove your verified SMS number?', $body);
+        // The confirm() text sits inside a JavaScript string in an
+        // onsubmit attribute, so the view escapes it for JS (spaces
+        // become \x20) - compare against the same escaping.
+        $this->assertStringContainsString(esc('Remove your verified SMS number?', 'js'), $body);
     }
 
     // -------------------------------------------------------------------

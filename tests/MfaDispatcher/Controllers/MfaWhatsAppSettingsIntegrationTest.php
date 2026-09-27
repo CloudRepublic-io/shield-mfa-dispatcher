@@ -59,9 +59,26 @@ final class MfaWhatsAppSettingsIntegrationTest extends CIUnitTestCase
     {
         parent::setUp();
 
+        // The Settings library's DatabaseHandler caches every value it has
+        // read in memory on the shared 'settings' service. $refresh resets
+        // the database between tests, but not that cache - and user ids
+        // restart at 1 after each refresh, so a preference saved for
+        // "user:1" in one test was still returned for a brand-new user:1
+        // in the next (seen as 'fake2' leaking into tests that set nothing).
+        // A fresh service per test reads the freshly-reset database.
+        \CodeIgniter\Config\Services::resetSingle('settings');
+
         if (! class_exists('\WhatsAppMfa\Libraries\PhoneNumberStore')) {
             $this->markTestSkipped('shield-whatsapp-mfa is not installed - this integration has nothing to test.');
         }
+
+        // Loaded here, after the guard, not at the top of the file: it
+        // implements shield-whatsapp-mfa's WhatsAppSenderInterface, so
+        // loading it without that package installed would be a fatal
+        // error rather than a skip. Explicit because Tests\MfaDispatcher\
+        // Support\* isn't autoloadable in a typical app (only
+        // Tests\Support\ is mapped).
+        require_once __DIR__ . '/../Support/FakeWhatsAppSender.php';
 
         // Defensive: this controller's own views use url_to(), which
         // needs a populated route collection - a call to resetServices()
@@ -87,7 +104,7 @@ final class MfaWhatsAppSettingsIntegrationTest extends CIUnitTestCase
     {
         return fake(UserModel::class, [
             'email'    => 'dispatcher-whatsapp-test-' . uniqid() . '@example.com',
-            'username' => 'dispatcherwhatsapptest' . uniqid(),
+            'username' => 'dwtest' . uniqid(),
             'password' => 'secret123456',
         ]);
     }
@@ -98,6 +115,11 @@ final class MfaWhatsAppSettingsIntegrationTest extends CIUnitTestCase
 
         /** @var IncomingRequest $request */
         $request = service('request', null, false);
+        // CodeIgniter 4.7+ reads POST from a shared 'superglobals' snapshot
+        // taken the first time anything touches the request, so the
+        // $_POST assignment above is invisible to it - setGlobal() works
+        // on 4.6 and 4.7 alike.
+        $request->setGlobal('post', $post);
 
         $controller = new MfaSettingsController();
         $controller->initController($request, service('response'), service('logger'));
@@ -128,7 +150,13 @@ final class MfaWhatsAppSettingsIntegrationTest extends CIUnitTestCase
 
         $body = $this->makeController()->whatsappEnroll();
 
-        $this->assertStringContainsString(lang('MfaDispatcher.whatsappPhoneLabel'), $body);
+        // The view replaces {channel} in this label with the resolved
+        // channel label ("WhatsApp", or your SMS label if $channel is
+        // 'sms' and a label resolver is configured), so check the phone
+        // field's label was rendered with a real channel name in it
+        // rather than comparing against the raw '{channel} number'.
+        $this->assertMatchesRegularExpression('#<label for="phone"[^>]*>[^<{]+ number</label>#', $body);
+        $this->assertStringNotContainsString('{channel}', $body);
     }
 
     public function testWhatsappEnrollShowsUnavailableWhenNotConfiguredAsAMethod(): void

@@ -16,6 +16,14 @@ use Tests\MfaDispatcher\Support\FakeAction;
 use Tests\MfaDispatcher\Support\FakeActivator;
 use Tests\MfaDispatcher\Support\FakeActionTwo;
 
+// Loaded explicitly rather than autoloaded: a typical CodeIgniter app's
+// composer.json only maps Tests\Support\ (to tests/_support), so
+// Tests\MfaDispatcher\Support\* isn't autoloadable, and PHPUnit only
+// loads *Test.php files itself.
+require_once __DIR__ . '/../../Support/FakeAction.php';
+require_once __DIR__ . '/../../Support/FakeActionTwo.php';
+require_once __DIR__ . '/../../Support/FakeActivator.php';
+
 /**
  * Tests MfaDispatcher's own delegation logic in isolation, using two
  * fake ActionInterface implementations (Support/FakeAction.php and
@@ -85,6 +93,15 @@ final class MfaDispatcherTest extends CIUnitTestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        // The Settings library's DatabaseHandler caches every value it has
+        // read in memory on the shared 'settings' service. $refresh resets
+        // the database between tests, but not that cache - and user ids
+        // restart at 1 after each refresh, so a preference saved for
+        // "user:1" in one test was still returned for a brand-new user:1
+        // in the next (seen as 'fake2' leaking into tests that set nothing).
+        // A fresh service per test reads the freshly-reset database.
+        \CodeIgniter\Config\Services::resetSingle('settings');
 
         $this->resetServices();
         session()->destroy();
@@ -362,6 +379,15 @@ final class MfaDispatcherTest extends CIUnitTestCase
         $user = $this->makeUser();
         $user->addGroup('admin');
         $user->addGroup('superadmin');
+
+        // Expected from the login attempt itself: Shield calls the login
+        // action's createIdentity() inside attempt(), which is where the
+        // dispatcher first resolves the required method - so a missing
+        // activator surfaces right at login, not later. The getType()
+        // call below is kept as a backstop.
+        $this->expectException(\CodeIgniter\Shield\Exceptions\RuntimeException::class);
+        $this->expectExceptionMessage("'fake2'");
+
         $this->attemptLogin($user);
 
         // 'fake2' has no configured activator, 'fake' does. If
@@ -372,9 +398,6 @@ final class MfaDispatcherTest extends CIUnitTestCase
         // (second-listed 'admin'/'fake' used instead), no exception
         // would be thrown at all, since 'fake' does have an activator
         // configured - so this assertion fails correctly either way.
-        $this->expectException(\CodeIgniter\Shield\Exceptions\RuntimeException::class);
-        $this->expectExceptionMessage("'fake2'");
-
         (new MfaDispatcher())->getType();
     }
 
@@ -385,10 +408,14 @@ final class MfaDispatcherTest extends CIUnitTestCase
 
         $user = $this->makeUser();
         $user->addGroup('admin');
-        $this->attemptLogin($user);
 
+        // Raised during the login attempt itself (attempt() calls the
+        // login action's createIdentity(), where the required method is
+        // first resolved) - see testMultipleMatchingGroupsUsesWhicheverIsListedFirst.
         $this->expectException(\CodeIgniter\Shield\Exceptions\RuntimeException::class);
         $this->expectExceptionMessage('activatorClasses');
+
+        $this->attemptLogin($user);
 
         (new MfaDispatcher())->getType();
     }

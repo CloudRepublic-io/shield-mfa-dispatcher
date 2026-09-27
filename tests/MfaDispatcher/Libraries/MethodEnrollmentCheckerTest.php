@@ -11,6 +11,12 @@ use CodeIgniter\Test\DatabaseTestTrait;
 use MfaDispatcher\Libraries\MethodEnrollmentChecker;
 use Tests\MfaDispatcher\Support\FakeCustomMethodStore;
 
+// Loaded explicitly rather than autoloaded: a typical CodeIgniter app's
+// composer.json only maps Tests\Support\ (to tests/_support), so
+// Tests\MfaDispatcher\Support\* isn't autoloadable, and PHPUnit only
+// loads *Test.php files itself.
+require_once __DIR__ . '/../Support/FakeCustomMethodStore.php';
+
 /**
  * Tests MethodEnrollmentChecker directly, in isolation. Uses fakes/
  * closures throughout for the custom-checker coverage - no real
@@ -30,6 +36,15 @@ final class MethodEnrollmentCheckerTest extends CIUnitTestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        // The Settings library's DatabaseHandler caches every value it has
+        // read in memory on the shared 'settings' service. $refresh resets
+        // the database between tests, but not that cache - and user ids
+        // restart at 1 after each refresh, so a preference saved for
+        // "user:1" in one test was still returned for a brand-new user:1
+        // in the next (seen as 'fake2' leaking into tests that set nothing).
+        // A fresh service per test reads the freshly-reset database.
+        \CodeIgniter\Config\Services::resetSingle('settings');
 
         config('MfaDispatcher')->customEnrollmentCheckers = [];
         FakeCustomMethodStore::reset();
@@ -176,11 +191,16 @@ final class MethodEnrollmentCheckerTest extends CIUnitTestCase
         $checker = new MethodEnrollmentChecker();
         $user    = $this->makeUser();
 
-        // TotpMfa isn't installed in this package's own isolated test
-        // environment, so the native check must still say "not
-        // available"/"not enrolled" - unaffected by the custom entry
-        // above.
-        $this->assertFalse($checker->isAvailable('totp'));
+        // Whether shield-totp-mfa is installed or not, the answer must
+        // be the NATIVE one, not the custom checker's "true":
+        //   - isAvailable() tracks whether the TOTP package is present;
+        //   - isEnrolled() is false either way - this brand-new user has
+        //     no TOTP secret, and if the package isn't installed it can't
+        //     be enrolled at all.
+        // (This used to assert isAvailable() was false, assuming TOTP
+        // was never installed alongside these tests - wrong in an app
+        // that has it.)
+        $this->assertSame(class_exists('\TotpMfa\Libraries\TotpIdentityStore'), $checker->isAvailable('totp'));
         $this->assertFalse($checker->isEnrolled('totp', $user));
     }
 }

@@ -45,6 +45,15 @@ final class RequireFreshMfaTest extends CIUnitTestCase
     {
         parent::setUp();
 
+        // The Settings library's DatabaseHandler caches every value it has
+        // read in memory on the shared 'settings' service. $refresh resets
+        // the database between tests, but not that cache - and user ids
+        // restart at 1 after each refresh, so a preference saved for
+        // "user:1" in one test was still returned for a brand-new user:1
+        // in the next (seen as 'fake2' leaking into tests that set nothing).
+        // A fresh service per test reads the freshly-reset database.
+        \CodeIgniter\Config\Services::resetSingle('settings');
+
         if (! class_exists('\WhatsAppMfa\Filters\RequireFreshWhatsApp')) {
             $this->markTestSkipped('shield-whatsapp-mfa is not installed - this delegation has nothing to test.');
         }
@@ -78,7 +87,7 @@ final class RequireFreshMfaTest extends CIUnitTestCase
     {
         return fake(UserModel::class, [
             'email'    => 'require-fresh-mfa-test-' . uniqid() . '@example.com',
-            'username' => 'requirefreshmfatest' . uniqid(),
+            'username' => 'rfmtest' . uniqid(),
             'password' => 'secret123456',
         ]);
     }
