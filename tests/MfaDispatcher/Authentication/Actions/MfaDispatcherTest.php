@@ -175,6 +175,18 @@ final class MfaDispatcherTest extends CIUnitTestCase
         $user = $this->makeUser();
         $this->attemptLogin($user);
 
+        // Mirrors Shield's own LoginController, which calls hasAction()
+        // straight after attempt() and only then redirects to
+        // auth/a/show. With MfaDispatcher as the login action, that
+        // hasAction() call is what actually puts the user into the
+        // "pending MFA" state: inside attempt() itself, getType() can't
+        // see the user yet (auth()->user() is null until login), so
+        // Shield doesn't find the pending identity until this second
+        // check. Without it, show() had no pending user to work with.
+        // Reproduced against CodeIgniter 4.7.4 + current Shield - see
+        // this package's README for what that means for real logins.
+        $this->assertTrue(auth('session')->getAuthenticator()->hasAction());
+
         $body = (new MfaDispatcher())->show();
 
         $this->assertSame('fake-show-body', $body);

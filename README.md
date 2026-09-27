@@ -927,6 +927,92 @@ tests/MfaDispatcher/
                                                    shield-whatsapp-mfa isn't installed
 ```
 
+### Fixes from running the suite on CodeIgniter 4.7 / PHP 8.5
+
+- **`Class "Tests\MfaDispatcher\Support\FakeAction" not found`** (and the
+  same for `FakeCustomMethodStore` and `FakeWhatsAppSender`). A typical
+  CodeIgniter app's `composer.json` only maps `Tests\Support\` to
+  `tests/_support`, and PHPUnit loads only `*Test.php` files itself, so
+  nothing ever loaded `Support/`. Each test file now uses `require_once`
+  to load the support classes it needs. `FakeWhatsAppSender` is loaded
+  only after the "is shield-whatsapp-mfa installed?" check, because it
+  implements that package's interface. Loading it earlier would be a
+  fatal error rather than a skip. If you'd rather autoload them, add
+  `"Tests\\": "tests/"` to `autoload-dev` in your app's `composer.json`
+  and run `composer dump-autoload`. The `require_once` lines are harmless
+  either way.
+- **`Data too long for column 'username'`.** Shield's `users.username`
+  is `VARCHAR(30)`, and `uniqid()` adds 13 characters. The longer
+  test-user prefixes (`dispatchersettingstest`, `dispatcherwhatsapptest`,
+  `requirefreshmfatest`) went over the limit. They're now `dstest`,
+  `dwtest` and `rfmtest`.
+- **A preference from one test leaking into the next** (`'fake2'`
+  returned for a user who never chose anything). The Settings library
+  caches every value it has read on the shared `settings` service.
+  `$refresh` resets the database between tests but not that cache, and
+  user ids start at 1 again after each refresh. A value saved for
+  `user:1` in one test was therefore still returned for the next test's
+  brand-new `user:1`. Every database-backed test now calls
+  `Services::resetSingle('settings')` in `setUp()`. This only affects
+  tests: a real request gets a fresh service anyway.
+- **Custom methods with no language line showed their raw lang key
+  (a real bug, fixed in `MfaSettingsController`).** The fallback label
+  was written as `lang('MfaDispatcher.methodLabel_' . $key) ?: ucfirst($key)`,
+  but `lang()` returns the key itself for a missing line, never an empty
+  string, so the fallback never ran. A custom method such as
+  `secretword` appeared on `account/mfa` as
+  "MfaDispatcher.methodLabel_secretword". It now correctly falls back to
+  `ucfirst($key)` ("Secretword"). Adding a `methodLabel_<key>` line to
+  your own `app/Language/en/MfaDispatcher.php` is still the way to give
+  it a proper name.
+- **`choose()` tests using `fake`/`fake2`.** Since the fix that stops an
+  unenrolled custom method being chosen (which silently skipped MFA),
+  `choose()` refuses any custom method without an enrollment checker
+  saying the user is set up. `fake` and `fake2` are custom keys, so
+  `MfaSettingsControllerTest::setUp()` now registers them as always
+  enrolled. The refusal tests still override that with their own
+  checker.
+- **`FakeAction` never made the user "pending".** Shield marks a login
+  as waiting for MFA only if it finds an identity of the action's type
+  in the database after `createIdentity()`. The fake created none, so
+  `getPendingUser()` returned `null` and `show()` couldn't find the user.
+  It now stores a real identity, as a real action would.
+- **`show()` test had no pending user.** Shield's `LoginController`
+  calls `hasAction()` straight after `attempt()`, and with
+  `MfaDispatcher` as the login action it's that second call that puts
+  the user into the "pending MFA" state. Inside `attempt()`, the
+  dispatcher's `getType()` can't see the user yet (`auth()->user()` is
+  `null` until login), so Shield doesn't find the pending identity there.
+  The test now makes the same `hasAction()` call. This was reproduced
+  against CodeIgniter 4.7.4 and current Shield, which also showed a side
+  effect in real logins: because Shield finds nothing pending during
+  `attempt()`, it runs `completeLogin()` there. Shield's `login` event
+  therefore fires once when the password is accepted, before the MFA
+  step, and again when MFA completes. MFA is still enforced: the
+  following `hasAction()` puts the session back into the pending state
+  before any page is served. However, any `login` event listener (audit
+  log, "new sign-in" email, last-login time) runs for someone who has
+  only passed the password step.
+- **Missing-activator errors raised at login, not later.** Shield calls
+  the login action's `createIdentity()` inside `attempt()`, and that's
+  where the dispatcher first resolves a required method. The "no
+  activator configured" error is therefore thrown during the login
+  attempt. That's the right place, but the two tests only started
+  expecting it afterwards. They now expect it before `attempt()`.
+- **Test assumptions about the host app.** One test assumed shield-totp-mfa
+  was never installed alongside the suite, which is wrong in an app that
+  has it. It now checks that a custom checker can't override TOTP's
+  native answer either way. Two others compared against raw strings the
+  views transform: `{channel}` substitution, and JavaScript escaping
+  inside the `confirm()` text. They now compare against the transformed
+  text.
+- **POST data invisible on CodeIgniter 4.7+.** From 4.7, a request reads
+  POST data from a shared `superglobals` snapshot, taken the first time
+  anything touches the request. Setting `$_POST` afterwards has no
+  effect. The controller tests' `makeController()` now also calls
+  `$request->setGlobal('post', $post)`, which works on 4.6 and 4.7. This
+  is the same fix as in shield-totp-mfa's tests.
+
 ### Setup
 
 1. Copy `tests/MfaDispatcher` into your app's own `tests/` folder, the
